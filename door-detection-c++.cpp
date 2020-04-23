@@ -9,6 +9,8 @@ using namespace std;
 // Declare all used constants
 int const RES = 180;
 
+float const CONTRAST = 1.5;
+
 // Declare all used functions
 bool detect(Mat image);
 
@@ -35,7 +37,6 @@ int main(int argc, char** argv)
 	
 	if (success)
 	{
-		imshow("Display window", image);
 		waitKey(0);
 	}
 
@@ -44,5 +45,22 @@ int main(int argc, char** argv)
 
 bool detect(Mat image)
 {
+	// Scale image down
+	int width = image.cols;
+	int height = image.rows;
+	float ratio = height / width;
+	resize(image, image, Size(RES * ratio, RES));
+
+	// Convert to grayscale
+	Mat gray;
+	cvtColor(image, gray, COLOR_BGR2GRAY);
+
+	// Increase contrast
+	gray.convertTo(gray, -1, CONTRAST, 0);
+
+	// Display result
+	imshow("Display window", gray);
+	waitKey(0);
+
 	return true;
 }
