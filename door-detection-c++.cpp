@@ -6,12 +6,43 @@
 using namespace cv;
 using namespace std;
 
-int main()
+// Declare all used constants
+int const RES = 180;
+
+// Declare all used functions
+bool detect(Mat image);
+
+int main(int argc, char** argv)
 {
-	Mat image = Mat::zeros(300, 600, CV_8UC3);
-	circle(image, Point(250, 150), 100, Scalar(0, 255, 128), -100);
-	circle(image, Point(350, 150), 100, Scalar(255, 255, 255), -100);
-	imshow("Display Window", image);
-	waitKey(0);
+	String fileName = "door_1.jpg";
+	if (argc > 1)
+	{
+		fileName = argv[1] + String(".jpg");
+	}
+
+	Mat image;
+	image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
+
+	if (image.empty()) // Check for invalid input
+	{
+		cout << "Could not open or find the image" << std::endl;
+		return -1;
+	}
+
+	namedWindow("Display window", WINDOW_AUTOSIZE);
+
+	bool success = detect(image);
+	
+	if (success)
+	{
+		imshow("Display window", image);
+		waitKey(0);
+	}
+
 	return 0;
+}
+
+bool detect(Mat image)
+{
+	return true;
 }
