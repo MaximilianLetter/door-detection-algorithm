@@ -7,9 +7,21 @@ using namespace cv;
 using namespace std;
 
 // Declare all used constants
-int const RES = 180;
+const int RES = 180;
 
-float const CONTRAST = 1.5;
+const float CONTRAST = 1.5;
+
+const Size BLUR_KERNEL = Size(3, 3);
+const double BLUR_SIGMA = 2.5;
+
+const int CANNY_LOWER = 50;
+const int CANNY_UPPER = 200;
+
+// NOTE: these values need to be improved to ensure to always find the corners of a door
+const int CORNERS_MAX = 40;
+const double CORNERS_QUALITY = 0.05;
+const double CORNERS_MIN_DIST = 10.0;
+const int CORNERS_MASK_OFFSET = 10;
 
 // Declare all used functions
 bool detect(Mat image);
@@ -49,7 +61,8 @@ bool detect(Mat image)
 	int width = image.cols;
 	int height = image.rows;
 	float ratio = height / width;
-	resize(image, image, Size(RES * ratio, RES));
+	resize(image, image, Size(RES * ratio, RES), 0.0, 0.0, INTER_AREA);
+	// NOTE: different interpolation methods can be used
 
 	// Convert to grayscale
 	Mat gray;
@@ -58,8 +71,31 @@ bool detect(Mat image)
 	// Increase contrast
 	gray.convertTo(gray, -1, CONTRAST, 0);
 
+	// Blur the image
+	Mat blurred;
+	GaussianBlur(gray, blurred, BLUR_KERNEL, BLUR_SIGMA);
+
+	// Generate edges
+	Mat edges;
+	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
+
+	// Generate mask and find corners
+	vector<Point2f> corners;
+	Mat mask;
+
+	mask = Mat::zeros(image.size(), CV_8U);
+	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
+	mask(rect) = 1;
+
+	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask);
+
 	// Display result
-	imshow("Display window", gray);
+	cout << corners.size();
+	for (int i = 0; i < corners.size(); i++)
+	{
+		circle(image, corners[i], 3, Scalar(0, 255, 0), FILLED);
+	}
+	imshow("Display window", image);
 	waitKey(0);
 
 	return true;
