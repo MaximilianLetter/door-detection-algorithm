@@ -42,10 +42,17 @@ const float ASPECT_RATIO_MAX = 0.7;
 const float LENGTH_HOR_DIFF_MAX = 1.1;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 
+// Comparison of rectangles to edges constants
+const float RECT_THRESH = 0.85;
+const float LINE_THRESH = 0.5;
+const int LINE_WIDTH = 2;
+const float BOT_LINE_BONUS = 0.25;
+
 // Declare all used functions
 bool detect(Mat image);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
+float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
@@ -68,6 +75,7 @@ int main(int argc, char** argv)
 	}
 
 	namedWindow("Display window", WINDOW_AUTOSIZE);
+	namedWindow("Edges window", WINDOW_AUTOSIZE);
 
 	bool success = detect(image);
 	
@@ -102,6 +110,7 @@ bool detect(Mat image)
 	// Generate edges
 	Mat edges;
 	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
+	imshow("Edges window", edges);
 
 	// Generate mask and find corners
 	vector<Point2f> corners;
@@ -119,9 +128,24 @@ bool detect(Mat image)
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
 
+	// NOTE: this could be done in vertLinesToRectangles aswell
+	// Compare the found rectangles to the edge image
+	vector<vector<Point2f>> candidates;
+	vector<float> scores;
+	for (int i = 0; i < rectangles.size(); i++)
+	{
+		float result = compareRectangleToEdges(rectangles[i], edges);
+
+		if (result > RECT_THRESH)
+		{
+			candidates.push_back(rectangles[i]);
+			scores.push_back(result);
+		}
+	}
+
 	// Display results
 
-	cout << corners.size();
+	cout << corners.size() << " ";
 	for (int i = 0; i < corners.size(); i++)
 	{
 		circle(image, corners[i], 3, Scalar(0, 255, 0), FILLED);
@@ -133,14 +157,14 @@ bool detect(Mat image)
 	//	line(image, lines[i][0], lines[i][1], Scalar(0, 0, 255), 1);
 	//}
 
-	cout << rectangles.size();
-	for (int i = 0; i < rectangles.size(); i++)
+	cout << candidates.size();
+	for (int i = 0; i < candidates.size(); i++)
 	{
 		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-		line(image, rectangles[i][0], rectangles[i][1], Scalar(255, 255, 0), 1);
-		line(image, rectangles[i][1], rectangles[i][2], Scalar(255, 255, 0), 1);
-		line(image, rectangles[i][2], rectangles[i][3], Scalar(255, 255, 0), 1);
-		line(image, rectangles[i][3], rectangles[i][0], Scalar(255, 255, 0), 1);
+		line(image, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 1);
+		line(image, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 1);
+		line(image, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 1);
+		line(image, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 1);
 	}
 
 	imshow("Display window", image);
@@ -259,6 +283,48 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 	}
 
 	return rects;
+}
+
+float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
+{
+	float result = 0.0;
+	float bottomBonus;
+
+	for (int i = 0; i < rect.size(); i++)
+	{
+		// Next point to connect
+		int j = (i + 1) % 4;
+
+		Mat mask = Mat::zeros(edges.size(), CV_8U);
+		line(mask, rect[i], rect[j], 1, LINE_WIDTH);
+
+		// While this works, there might be a better option without copy
+		Mat roi;
+		edges.copyTo(roi, mask);
+
+		float lineLength = getDistance(rect[i], rect[j]);
+		float fillRatio = min(float(1.0), countNonZero(roi) / lineLength);
+
+		if (i < 3)
+		{
+			if (fillRatio < LINE_THRESH)
+			{
+				return 0.0;
+			}
+
+			result += fillRatio;
+		}
+		else
+		{
+			// Bottom line
+			bottomBonus = fillRatio * BOT_LINE_BONUS;
+		}
+	}
+
+	// Get average fillRatio for all lines but bottom line
+	result = (result / 3) + bottomBonus;
+
+	return result;
 }
 
 // Get the distance between two points
