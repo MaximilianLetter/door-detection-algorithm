@@ -82,10 +82,10 @@ int main(int argc, char** argv)
 bool detect(Mat image)
 {
 	// Scale image down
-	int width = image.cols;
-	int height = image.rows;
-	float ratio = height / width;
-	resize(image, image, Size(RES * ratio, RES), 0.0, 0.0, INTER_AREA);
+	int width = image.size().width;
+	int height = image.size().height;
+	float ratio = float(height) / float(width);
+	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
 	// NOTE: different interpolation methods can be used
 
 	// Convert to grayscale
