@@ -48,14 +48,22 @@ const float LINE_THRESH = 0.5;
 const int LINE_WIDTH = 2;
 const float BOT_LINE_BONUS = 0.25;
 
+// Selection of best candidate constants
+const float UPVOTE_FACTOR = 1.2;
+const float DOOR_IN_DOOR_DIFF_THRESH = 12.0; // Devider of image height
+const float COLOR_DIFF_THRESH = 50.0;
+const float ANGLE_DEVIATION_THRESH = 10.0;
+
 // Declare all used functions
 bool detect(Mat image);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
+float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
 
 int main(int argc, char** argv)
 {
@@ -143,6 +151,12 @@ bool detect(Mat image)
 		}
 	}
 
+	// Select the best candidate out of the given rectangles
+	if (candidates.size())
+	{
+		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+	}
+
 	// Display results
 
 	cout << corners.size() << " ";
@@ -172,7 +186,7 @@ bool detect(Mat image)
 	return true;
 }
 
-// Group corners to vertical lines that represent the door posts. 
+// Group corners to vertical lines that represent the door posts
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
 {
 	float lengthMax = LINE_MAX * height;
@@ -215,6 +229,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
 	return lines;
 }
 
+// Group rectangles that represent door candidates out of vertical lines
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 {
 	vector<vector<Point2f>> rects;
@@ -285,10 +300,11 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 	return rects;
 }
 
+// Compare a possible rectangle with the existing edges in the edge image
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 {
 	float result = 0.0;
-	float bottomBonus;
+	float bottomBonus = 0.0;
 
 	for (int i = 0; i < rect.size(); i++)
 	{
@@ -327,6 +343,83 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 	return result;
 }
 
+// Select the candidate by comparing their scores, score boni if special requirements are met
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
+{
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		// Test in inner content has a different color average
+		int left = (candidates[i][0].x + candidates[i][1].x) / 2;
+		int top = (candidates[i][1].y + candidates[i][2].y) / 2;
+		int right = (candidates[i][2].x + candidates[i][3].x) / 2;
+		int bottom = (candidates[i][3].y + candidates[i][0].y) / 2;
+
+		// This whole process of masking the image seems like a workaround
+		Rect rect = Rect(Point2i(left, bottom), Point2i(right, top));
+		Mat mask = Mat::zeros(gray.size(), CV_8U);
+		rectangle(mask, rect, 1);
+
+		double inner = mean(gray, mask)[0];
+		mask = 1 - mask;
+		double outer = mean(gray, mask)[0];
+
+		if (abs(inner - outer) > COLOR_DIFF_THRESH)
+		{
+			scores[i] *= UPVOTE_FACTOR;
+		}
+
+		// Test for corner angles
+		float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
+		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
+		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
+		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
+
+		float botAngleDiff = abs(angle0 - angle3);
+		float topAngleDiff = abs(angle1 - angle2);
+
+		if (botAngleDiff < ANGLE_DEVIATION_THRESH && topAngleDiff < ANGLE_DEVIATION_THRESH)
+		{
+			scores[i] *= UPVOTE_FACTOR;
+		}
+
+		// Check if there is a door with the same top corners
+		for (int j = 0; j < candidates.size(); j++)
+		{
+			if (j <= i) continue;
+
+			if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
+			{
+				float bottomJ = (candidates[j][0].y + candidates[j][3].y) / 2;
+
+				float height = abs(top - bottom);
+				float heightJ = abs(top - bottomJ);
+				float diff = abs(height - heightJ);
+
+				if (diff > DOOR_IN_DOOR_DIFF_THRESH)
+				{
+					if (height > heightJ)
+					{
+						scores[i] *= UPVOTE_FACTOR;
+					}
+					else
+					{
+						scores[j] *= UPVOTE_FACTOR;
+					}
+					break;
+				}
+			}
+		}
+
+		cout << scores[i];
+	}
+
+	int index = max_element(scores.begin(), scores.end()) - scores.begin();
+	cout << " winner " << index;
+	vector<Point2f> door = candidates[index];
+
+	return door;
+}
+
 // Get the distance between two points
 float getDistance(Point2f p1, Point2f p2)
 {
@@ -344,4 +437,16 @@ float getOrientation(Point2f p1, Point2f p2)
 	{
 		return 180.0;
 	}
+}
+
+// Get the angle between three points forming two lines
+float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
+{
+	Point2f p12 = p1 - p2;
+	Point2f p32 = p3 - p2;
+
+	float angle = p12.dot(p32) / (norm(p12) * norm(p32));
+	angle = acos(angle) * 180/M_PI;
+
+	return angle;
 }
