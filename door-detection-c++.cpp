@@ -55,7 +55,7 @@ const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
-bool detect(Mat image);
+bool detect(Mat& image);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
@@ -68,34 +68,77 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
 int main(int argc, char** argv)
 {
 	String fileName = "door_1.jpg";
-	if (argc > 1)
+	bool video = false;
+	if (argc > 2)
+	{
+		video = true;
+		fileName = argv[2] + String(".mp4");
+	}
+	else if (argc > 1)
 	{
 		fileName = argv[1] + String(".jpg");
-	}
-
-	Mat image;
-	image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
-
-	if (image.empty()) // Check for invalid input
-	{
-		cout << "Could not open or find the image" << std::endl;
-		return -1;
 	}
 
 	namedWindow("Display window", WINDOW_AUTOSIZE);
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
 
-	bool success = detect(image);
-	
-	if (success)
+	if (!video)
 	{
-		waitKey(0);
+		Mat image;
+		image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
+
+		if (image.empty()) // Check for invalid input
+		{
+			cout << "Could not open or find the image" << std::endl;
+			return -1;
+		}
+
+		bool success = detect(image);
+
+		/*if (success)
+		{*/
+			imshow("Display window", image);
+			waitKey(0);
+		//}
 	}
+	else
+	{
+		cout << fileName;
+		VideoCapture cap(samples::findFile("data/" + fileName));
+
+		if (!cap.isOpened())
+		{
+			cout << "Error opening video stream or file" << endl;
+			
+			return -1;
+		}
+
+		while (1)
+		{
+			Mat frame;
+			cap >> frame;
+
+			if (frame.empty()) break;
+
+			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
+
+			bool success = detect(frame);
+
+			imshow("Display window", frame);
+
+			char c = (char)waitKey(25);
+			if (c == 27) break;
+		}
+
+		cap.release();
+	}
+	
+	destroyAllWindows();
 
 	return 0;
 }
 
-bool detect(Mat image)
+bool detect(Mat& image)
 {
 	// Scale image down
 	int width = image.size().width;
@@ -155,15 +198,26 @@ bool detect(Mat image)
 	if (candidates.size())
 	{
 		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+
+		line(image, door[0], door[1], Scalar(255, 255, 0), 1);
+		line(image, door[1], door[2], Scalar(255, 255, 0), 1);
+		line(image, door[2], door[3], Scalar(255, 255, 0), 1);
+		line(image, door[3], door[0], Scalar(255, 255, 0), 1);
+
+		/*imshow("Display window", image);*/
+
+		return true;
 	}
+
+	return false;
 
 	// Display results
 
-	cout << corners.size() << " ";
+	/*cout << corners.size() << " ";
 	for (int i = 0; i < corners.size(); i++)
 	{
 		circle(image, corners[i], 3, Scalar(0, 255, 0), FILLED);
-	}
+	}*/
 
 	//cout << lines.size();
 	//for (int i = 0; i < lines.size(); i++)
@@ -171,19 +225,19 @@ bool detect(Mat image)
 	//	line(image, lines[i][0], lines[i][1], Scalar(0, 0, 255), 1);
 	//}
 
-	cout << candidates.size();
-	for (int i = 0; i < candidates.size(); i++)
-	{
-		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-		line(image, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 1);
-		line(image, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 1);
-		line(image, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 1);
-		line(image, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 1);
-	}
+	//cout << candidates.size();
+	//for (int i = 0; i < candidates.size(); i++)
+	//{
+	//	/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
+	//	line(image, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 1);
+	//	line(image, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 1);
+	//	line(image, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 1);
+	//	line(image, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 1);
+	//}
 
-	imshow("Display window", image);
+	
 
-	return true;
+	//return true;
 }
 
 // Group corners to vertical lines that represent the door posts
@@ -410,11 +464,11 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 			}
 		}
 
-		cout << scores[i];
+		//cout << scores[i];
 	}
 
 	int index = max_element(scores.begin(), scores.end()) - scores.begin();
-	cout << " winner " << index;
+	//cout << " winner " << index;
 	vector<Point2f> door = candidates[index];
 
 	return door;
