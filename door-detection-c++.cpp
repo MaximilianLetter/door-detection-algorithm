@@ -2,6 +2,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <iostream>
+#include <chrono>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -140,6 +141,8 @@ int main(int argc, char** argv)
 
 bool detect(Mat& image)
 {
+	auto t1 = chrono::high_resolution_clock::now();
+
 	// Scale image down
 	int width = image.size().width;
 	int height = image.size().height;
@@ -206,8 +209,13 @@ bool detect(Mat& image)
 
 		/*imshow("Display window", image);*/
 
-		return true;
+		//return true;
 	}
+
+
+	auto t2 = chrono::high_resolution_clock::now();
+	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+	cout << duration << endl;
 
 	return false;
 
