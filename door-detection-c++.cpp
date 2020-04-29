@@ -13,7 +13,7 @@ using namespace std;
 // Declare all used constants
 const int RES = 180;
 
-const float CONTRAST = 1.5;
+const float CONTRAST = 1.1;
 
 // Blur constants
 const Size BLUR_KERNEL = Size(3, 3);
@@ -25,10 +25,11 @@ const int CANNY_UPPER = 200;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
-const int CORNERS_MAX = 40;
-const float CORNERS_QUALITY = 0.05;
-const float CORNERS_MIN_DIST = 10.0;
+const int CORNERS_MAX = 50;
+const float CORNERS_QUALITY = 0.01;
+const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
+const bool CORNERS_HARRIS = true;
 
 // Vertical lines constants
 const float LINE_MAX = 0.85;
@@ -37,10 +38,10 @@ const float LINE_ANGLE_MIN = 0.875; // RAD
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD
-const float LENGTH_DIFF_MAX = 0.15;
-const float ASPECT_RATIO_MIN = 0.35;
+const float LENGTH_DIFF_MAX = 0.12;
+const float ASPECT_RATIO_MIN = 0.3;
 const float ASPECT_RATIO_MAX = 0.7;
-const float LENGTH_HOR_DIFF_MAX = 1.1;
+const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 
 // Comparison of rectangles to edges constants
@@ -51,7 +52,7 @@ const float BOT_LINE_BONUS = 0.25;
 
 // Selection of best candidate constants
 const float UPVOTE_FACTOR = 1.2;
-const float DOOR_IN_DOOR_DIFF_THRESH = 12.0; // Devider of image height
+const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
 const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
@@ -82,6 +83,7 @@ int main(int argc, char** argv)
 
 	namedWindow("Display window", WINDOW_AUTOSIZE);
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
+	namedWindow("Dev window", WINDOW_AUTOSIZE);
 
 	if (!video)
 	{
@@ -141,7 +143,7 @@ int main(int argc, char** argv)
 
 bool detect(Mat& image)
 {
-	auto t1 = chrono::high_resolution_clock::now();
+	auto t1 = chrono::steady_clock::now();
 
 	// Scale image down
 	int width = image.size().width;
@@ -174,7 +176,12 @@ bool detect(Mat& image)
 	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
 	mask(rect) = 1;
 
-	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask);
+	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+
+	for (int i = 0; i < corners.size(); i++)
+	{
+		circle(blurred, corners[i], 3, Scalar(0, 0, 255), -1);
+	}
 
 	// Connect corners to vertical lines
 	vector<vector<Point2f>> lines = cornersToVertLines(corners, int(RES * ratio));
@@ -196,56 +203,37 @@ bool detect(Mat& image)
 			scores.push_back(result);
 		}
 	}
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
+		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+	}
+	imshow("Dev window", blurred);
 
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
 		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
 
-		line(image, door[0], door[1], Scalar(255, 255, 0), 1);
-		line(image, door[1], door[2], Scalar(255, 255, 0), 1);
-		line(image, door[2], door[3], Scalar(255, 255, 0), 1);
-		line(image, door[3], door[0], Scalar(255, 255, 0), 1);
+		line(image, door[0], door[1], Scalar(255, 255, 0), 2);
+		line(image, door[1], door[2], Scalar(255, 255, 0), 2);
+		line(image, door[2], door[3], Scalar(255, 255, 0), 2);
+		line(image, door[3], door[0], Scalar(255, 255, 0), 2);
 
 		/*imshow("Display window", image);*/
 
 		//return true;
 	}
+	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
-
-	auto t2 = chrono::high_resolution_clock::now();
+	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
 	cout << duration << endl;
 
 	return false;
-
-	// Display results
-
-	/*cout << corners.size() << " ";
-	for (int i = 0; i < corners.size(); i++)
-	{
-		circle(image, corners[i], 3, Scalar(0, 255, 0), FILLED);
-	}*/
-
-	//cout << lines.size();
-	//for (int i = 0; i < lines.size(); i++)
-	//{
-	//	line(image, lines[i][0], lines[i][1], Scalar(0, 0, 255), 1);
-	//}
-
-	//cout << candidates.size();
-	//for (int i = 0; i < candidates.size(); i++)
-	//{
-	//	/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-	//	line(image, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 1);
-	//	line(image, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 1);
-	//	line(image, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 1);
-	//	line(image, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 1);
-	//}
-
-	
-
-	//return true;
 }
 
 // Group corners to vertical lines that represent the door posts
@@ -312,11 +300,11 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			// maybe store them for reusage
 			// Check if length difference of lines is close
 			float length1 = getDistance(lines[i][0], lines[i][1]);
-			float length2 = getDistance(lines[i][0], lines[i][1]);
+			float length2 = getDistance(lines[j][0], lines[j][1]);
 			float lengthDiff = abs(length1 - length2);
 			float lengthAvg = (length1 + length2) / 2;
 
-			if ((lengthDiff > (lengthAvg * LENGTH_DIFF_MAX)))
+			if (lengthDiff > (lengthAvg * LENGTH_DIFF_MAX))
 			{
 				continue;
 			}
@@ -493,7 +481,7 @@ float getOrientation(Point2f p1, Point2f p2)
 {
 	if (p1.x != p2.x)
 	{
-		return (2 / M_PI) * atan(abs(p1.y - p2.y) / abs(p1.x - p2.x));
+		return abs((2 / M_PI) * atan(abs(p1.y - p2.y) / abs(p1.x - p2.x)));
 	}
 	else
 	{
@@ -508,7 +496,7 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
 	Point2f p32 = p3 - p2;
 
 	float angle = p12.dot(p32) / (norm(p12) * norm(p32));
-	angle = acos(angle) * 180/M_PI;
+	angle = abs(acos(angle) * 180/M_PI);
 
 	return angle;
 }
