@@ -13,7 +13,7 @@ using namespace std;
 // Declare all used constants
 const int RES = 180;
 
-const float CONTRAST = 1.1;
+const float CONTRAST = 1.2;
 
 // Blur constants
 const Size BLUR_KERNEL = Size(3, 3);
@@ -26,13 +26,14 @@ const int CANNY_UPPER = 200;
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
 const int CORNERS_MAX = 50;
-const float CORNERS_QUALITY = 0.01;
+//const float CORNERS_QUALITY = 0.01;
+const float CORNERS_QUALITY = 0.05;
 const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
-const bool CORNERS_HARRIS = true;
+const bool CORNERS_HARRIS = false;
 
 // Vertical lines constants
-const float LINE_MAX = 0.85;
+const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
 const float LINE_ANGLE_MIN = 0.875; // RAD
 
@@ -40,7 +41,7 @@ const float LINE_ANGLE_MIN = 0.875; // RAD
 const float ANGLE_MAX = 0.175; // RAD
 const float LENGTH_DIFF_MAX = 0.12;
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.7;
+const float ASPECT_RATIO_MAX = 0.8;
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 
@@ -57,7 +58,7 @@ const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
-bool detect(Mat& image);
+bool detect(Mat& image, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
@@ -96,7 +97,8 @@ int main(int argc, char** argv)
 			return -1;
 		}
 
-		bool success = detect(image);
+		vector<Point2f> result = {};
+		bool success = detect(image, result);
 
 		/*if (success)
 		{*/
@@ -116,6 +118,13 @@ int main(int argc, char** argv)
 			return -1;
 		}
 
+		// frames get loaded rotated -> flip width and height
+		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
+		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
+		cout << frameWidth;
+		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
+
 		while (1)
 		{
 			Mat frame;
@@ -124,26 +133,50 @@ int main(int argc, char** argv)
 			if (frame.empty()) break;
 
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
+			//auto size = frame.size();
+			vector<Point2f> result = {};
 
-			bool success = detect(frame);
+			bool success = detect(frame, result);
 
+			//resize(frame, frame, size);
+
+			if (result.size() > 0)
+			{
+				// Scale up to match input size (6x for FHD, 4x for HD)
+				for (int i = 0; i < result.size(); i++)
+				{
+					result[i] = result[i] * 6;
+				}
+
+				line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
+				line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
+				line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
+				line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
+			}
+
+			//resize(frame, frame, frame.size() / 2);
 			imshow("Display window", frame);
+			video.write(frame);
 
 			char c = (char)waitKey(25);
 			if (c == 27) break;
 		}
 
 		cap.release();
+		video.release();
 	}
 	
-	destroyAllWindows();
+	cv::destroyAllWindows();
 
 	return 0;
 }
 
-bool detect(Mat& image)
+bool detect(Mat& input, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
+
+	Mat image;
+	input.copyTo(image);
 
 	// Scale image down
 	int width = image.size().width;
@@ -217,15 +250,7 @@ bool detect(Mat& image)
 	if (candidates.size())
 	{
 		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
-
-		line(image, door[0], door[1], Scalar(255, 255, 0), 2);
-		line(image, door[1], door[2], Scalar(255, 255, 0), 2);
-		line(image, door[2], door[3], Scalar(255, 255, 0), 2);
-		line(image, door[3], door[0], Scalar(255, 255, 0), 2);
-
-		/*imshow("Display window", image);*/
-
-		//return true;
+		result = door;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
@@ -243,7 +268,6 @@ vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
 	float lengthMin = LINE_MIN * height;
 
 	vector<vector<Point2f>> lines;
-	vector<bool> done;
 
 	for (int i = 0; i < corners.size(); i++)
 	{
