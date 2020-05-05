@@ -44,6 +44,8 @@ const float ASPECT_RATIO_MIN = 0.3;
 const float ASPECT_RATIO_MAX = 0.8;
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
+const float RECTANGLE_THRESH = 10.0;
+const float RECTANGLE_OPPOSITE_THRESH = 10.0;
 
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.85;
@@ -364,6 +366,30 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			{
 				continue;
 			}
+
+			float angles[4];
+			angles[0] = getCornerAngle(lines[i][1], lines[i][0], lines[j][0]);
+			angles[1] = getCornerAngle(lines[i][0], lines[j][0], lines[j][1]);
+			angles[2] = getCornerAngle(lines[j][0], lines[j][1], lines[i][1]);
+			angles[3] = getCornerAngle(lines[j][1], lines[i][1], lines[i][0]);
+
+			bool rectangular = true;
+
+			for (int k = 0; k < 4; k++)
+			{
+				if (abs(90.0 - angles[k]) > RECTANGLE_THRESH)
+				{
+					int kOpp = (k + 2) % 4;
+
+					if (abs(180.0 - (angles[k] + angles[kOpp]) > RECTANGLE_OPPOSITE_THRESH))
+					{
+						rectangular = false;
+						break;
+					}
+				}
+			}
+
+			if (!rectangular) continue;
 
 			// Sort in order: leftBot > leftTop > rightTop > rightBot
 			vector<Point2f> group = { lines[i][1], lines[i][0], lines[j][0], lines[j][1] };
