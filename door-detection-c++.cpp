@@ -102,11 +102,28 @@ int main(int argc, char** argv)
 		vector<Point2f> result = {};
 		bool success = detect(image, result);
 
-		/*if (success)
-		{*/
-			imshow("Display window", image);
-			waitKey(0);
-		//}
+		if (result.size() > 0)
+		{
+			cout << "DOOR FOUND" << endl;
+
+			// Scale up to match input size (6x for FHD, 4x for HD)
+			for (int i = 0; i < result.size(); i++)
+			{
+				result[i] = result[i] * 17;
+			}
+
+			line(image, result[0], result[1], Scalar(255, 255, 0), 5);
+			line(image, result[1], result[2], Scalar(255, 255, 0), 5);
+			line(image, result[2], result[3], Scalar(255, 255, 0), 5);
+			line(image, result[3], result[0], Scalar(255, 255, 0), 5);
+		}
+		else {
+			cout << "NO DOOR" << endl;
+		}
+
+		resize(image, image, image.size() / 6);
+		imshow("Display window", image);
+		waitKey(0);
 	}
 	else
 	{
@@ -156,7 +173,7 @@ int main(int argc, char** argv)
 				line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
 			}
 
-			//resize(frame, frame, frame.size() / 2);
+			resize(frame, frame, frame.size() / 2);
 			imshow("Display window", frame);
 			video.write(frame);
 
@@ -322,7 +339,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 				continue;
 			}
 
-			// NOTE: both of these values was calculated before,
+			// NOTE: both of these values were calculated before,
 			// maybe store them for reusage
 			// Check if length difference of lines is close
 			float length1 = getDistance(lines[i][0], lines[i][1]);
@@ -353,6 +370,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 				continue;
 			}
 
+			// NOTE: these tests might not be necessary if corner angle test exists
 			// Test orientation of top horizontal line
 			float orientationTop = getOrientation(lines[i][0], lines[j][0]);
 			if (orientationTop > ANGLE_MAX)
@@ -446,9 +464,11 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 // Select the candidate by comparing their scores, score boni if special requirements are met
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
 {
+	cout << candidates.size() << "size" << endl;
 	for (int i = 0; i < candidates.size(); i++)
 	{
-		// Test in inner content has a different color average
+		// NOTE: this can be a trap and should be somewhat dynamic
+		// Test if inner content has a different color average
 		int left = (candidates[i][0].x + candidates[i][1].x) / 2;
 		int top = (candidates[i][1].y + candidates[i][2].y) / 2;
 		int right = (candidates[i][2].x + candidates[i][3].x) / 2;
@@ -469,7 +489,7 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		}
 
 		// Test for corner angles
-		float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
+		/*float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
 		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
 		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
 		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
@@ -480,33 +500,17 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		if (botAngleDiff < ANGLE_DEVIATION_THRESH && topAngleDiff < ANGLE_DEVIATION_THRESH)
 		{
 			scores[i] *= UPVOTE_FACTOR;
-		}
+		}*/
 
 		// Check if there is a door with the same top corners
 		for (int j = 0; j < candidates.size(); j++)
 		{
-			if (j <= i) continue;
+			if (j == i) continue;
+			// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
 
 			if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
 			{
-				float bottomJ = (candidates[j][0].y + candidates[j][3].y) / 2;
-
-				float height = abs(top - bottom);
-				float heightJ = abs(top - bottomJ);
-				float diff = abs(height - heightJ);
-
-				if (diff > DOOR_IN_DOOR_DIFF_THRESH)
-				{
-					if (height > heightJ)
-					{
-						scores[i] *= UPVOTE_FACTOR;
-					}
-					else
-					{
-						scores[j] *= UPVOTE_FACTOR;
-					}
-					break;
-				}
+				scores[i] = scores[i] * UPVOTE_FACTOR;
 			}
 		}
 
