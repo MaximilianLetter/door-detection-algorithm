@@ -1,6 +1,8 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/video.hpp>
 #include <iostream>
 #include <chrono>
 
@@ -144,38 +146,76 @@ int main(int argc, char** argv)
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
+		// Start Optical Flow setup
+		Mat prevFrame, prevFrameGray;
+		cap >> prevFrame;
+
+		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.25, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.25);
+
+		resize(prevFrame, prevFrame, smallSize);
+		rotate(prevFrame, prevFrame, ROTATE_90_CLOCKWISE);
+		cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
+
 		while (1)
 		{
-			Mat frame;
+			Mat frame, frameGray;
 			cap >> frame;
 
 			if (frame.empty()) break;
 
-			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
+			resize(frame, frame, smallSize);
+			rotate(frame, frame, ROTATE_90_CLOCKWISE);
+			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
+
+			Mat flow(prevFrameGray.size(), CV_32FC2);
+			calcOpticalFlowFarneback(prevFrameGray, frameGray, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+
+			// visualization
+			Mat flow_parts[2];
+			split(flow, flow_parts);
+			Mat magnitude, angle, magn_norm;
+			cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
+			normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
+			angle *= ((1.f / 360.f) * (180.f / 255.f));
+
+			//build hsv image
+			Mat _hsv[3], hsv, hsv8, bgr;
+			_hsv[0] = angle;
+			_hsv[1] = Mat::ones(angle.size(), CV_32F);
+			_hsv[2] = magn_norm;
+			merge(_hsv, 3, hsv);
+			hsv.convertTo(hsv8, CV_8U, 255.0);
+			cvtColor(hsv8, bgr, COLOR_HSV2BGR);
+			imshow("frame2", bgr);
+
+			prevFrameGray = frameGray;
+
+
+
 			//auto size = frame.size();
-			vector<Point2f> result = {};
+			//vector<Point2f> result = {};
 
-			bool success = detect(frame, result);
+			//bool success = detect(frame, result);
 
-			//resize(frame, frame, size);
+			////resize(frame, frame, size);
 
-			if (result.size() > 0)
-			{
-				// Scale up to match input size (6x for FHD, 4x for HD)
-				for (int i = 0; i < result.size(); i++)
-				{
-					result[i] = result[i] * 6;
-				}
+			//if (result.size() > 0)
+			//{
+			//	// Scale up to match input size (6x for FHD, 4x for HD)
+			//	for (int i = 0; i < result.size(); i++)
+			//	{
+			//		result[i] = result[i] * 4;
+			//	}
 
-				line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-				line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-				line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-				line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-			}
+			//	line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
+			//	line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
+			//	line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
+			//	line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
+			//}
 
-			resize(frame, frame, frame.size() / 2);
-			imshow("Display window", frame);
-			video.write(frame);
+			//resize(frame, frame, frame.size() / 2);
+			//imshow("Display window", frame);
+			//video.write(frame);
 
 			char c = (char)waitKey(25);
 			if (c == 27) break;
