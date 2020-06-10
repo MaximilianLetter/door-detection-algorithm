@@ -158,6 +158,8 @@ int main(int argc, char** argv)
 
 		while (1)
 		{
+			auto t1 = chrono::steady_clock::now();
+
 			Mat frame, frameGray;
 			cap >> frame;
 
@@ -176,20 +178,31 @@ int main(int argc, char** argv)
 			Mat magnitude, angle, magn_norm;
 			cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
 			normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
-			angle *= ((1.f / 360.f) * (180.f / 255.f));
+			
+			//angle *= ((1.f / 360.f) * (180.f / 255.f));
 
 			//build hsv image
-			Mat _hsv[3], hsv, hsv8, bgr;
+			/*Mat _hsv[3], hsv, hsv8, bgr;
 			_hsv[0] = angle;
 			_hsv[1] = Mat::ones(angle.size(), CV_32F);
 			_hsv[2] = magn_norm;
 			merge(_hsv, 3, hsv);
 			hsv.convertTo(hsv8, CV_8U, 255.0);
 			cvtColor(hsv8, bgr, COLOR_HSV2BGR);
-			imshow("frame2", bgr);
+			imshow("frame2", bgr);*/
+
+			imshow("magnitude", magn_norm);
+
+			Mat magn_thresh;
+			threshold(magn_norm, magn_thresh, 0.1, 255, cv::THRESH_BINARY);
+
+			imshow("thresholded", magn_thresh);
 
 			prevFrameGray = frameGray;
 
+			auto t2 = chrono::steady_clock::now();
+			auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+			cout << duration << endl;
 
 
 			//auto size = frame.size();
