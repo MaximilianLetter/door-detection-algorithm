@@ -147,14 +147,21 @@ int main(int argc, char** argv)
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
 		// Start Optical Flow setup
+		vector<Point2f> p0, p1;
 		Mat prevFrame, prevFrameGray;
 		cap >> prevFrame;
 
-		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.25, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.25);
+		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
 
 		resize(prevFrame, prevFrame, smallSize);
 		rotate(prevFrame, prevFrame, ROTATE_90_CLOCKWISE);
 		cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
+
+		// Find trackables
+		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.05, 15, Mat(), 7, false, 0.04);
+
+		// Mask for some reason 
+		Mat mask = Mat::zeros(prevFrame.size(), prevFrame.type());
 
 		while (1)
 		{
@@ -169,41 +176,111 @@ int main(int argc, char** argv)
 			rotate(frame, frame, ROTATE_90_CLOCKWISE);
 			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
 
-			Mat flow(prevFrameGray.size(), CV_32FC2);
-			calcOpticalFlowFarneback(prevFrameGray, frameGray, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+			// Calculate optical flow
+			vector<uchar> status;
+			vector<float> err;
+			TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
+			calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
+			vector<Point2f> good_new;
 
-			// visualization
-			Mat flow_parts[2];
-			split(flow, flow_parts);
-			Mat magnitude, angle, magn_norm;
-			cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
-			normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
+			// Close is RED
+			Scalar close = Scalar(0, 0, 255);
+			// Far is BLUE
+			Scalar far = Scalar(255, 0, 0);
+
+			vector<float> distances;
+			float allDists = 0;
+			for (uint i = 0; i < p0.size(); i++)
+			{
+				// Select good points
+				if (status[i] == 1) {
+					good_new.push_back(p1[i]);
+
+					float dist = getDistance(p0[i], p1[i]);
+					allDists += dist;
+					cout << dist;
+					distances.push_back(dist);
+
+					// draw the tracks
+					line(mask, p1[i], p0[i], Scalar(255, 255, 255), 2);
+					/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
+				}
+			}
+
+			float min = *min_element(distances.begin(), distances.end());
+			float max = *max_element(distances.begin(), distances.end());
+			float range = max - min;
+			float ratio = min / max;
+			float avg = allDists / distances.size();
+
+			cout << endl;
+			cout << "min: " << min << endl;
+			cout << "max: " << max << endl;
+			cout << "range: " << range << endl;
+			cout << "ratio: " << ratio << endl;
+			cout << "average: " << avg << endl;
+			cout <<  "------------" << endl;
 			
-			//angle *= ((1.f / 360.f) * (180.f / 255.f));
+			for (uint i = 0; i < good_new.size(); i++)
+			{
+				Scalar col;
+				if (distances[i] >= avg)
+				{
+					col = close;
+				}
+				else
+				{
+					col = far;
+				}
+				circle(frame, p1[i], 5, col, -1);
+			}
 
-			//build hsv image
-			/*Mat _hsv[3], hsv, hsv8, bgr;
-			_hsv[0] = angle;
-			_hsv[1] = Mat::ones(angle.size(), CV_32F);
-			_hsv[2] = magn_norm;
-			merge(_hsv, 3, hsv);
-			hsv.convertTo(hsv8, CV_8U, 255.0);
-			cvtColor(hsv8, bgr, COLOR_HSV2BGR);
-			imshow("frame2", bgr);*/
+			Mat img;
+			//add(frame, mask, img);
+			img = frame;
+			imshow("Frame", img);
+			imshow("Mask", mask);
 
-			imshow("magnitude", magn_norm);
+			prevFrameGray = frameGray.clone();
+			p0 = good_new;
 
-			Mat magn_thresh;
-			threshold(magn_norm, magn_thresh, 0.1, 255, cv::THRESH_BINARY);
 
-			imshow("thresholded", magn_thresh);
+			//Mat flow(prevFrameGray.size(), CV_32FC2);
+			//calcOpticalFlowFarneback(prevFrameGray, frameGray, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
 
-			prevFrameGray = frameGray;
+			//// visualization
+			//Mat flow_parts[2];
+			//split(flow, flow_parts);
+			//Mat magnitude, angle, magn_norm;
+			//cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
+			//normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
+			//
+			////angle *= ((1.f / 360.f) * (180.f / 255.f));
+
+			////build hsv image
+			///*Mat _hsv[3], hsv, hsv8, bgr;
+			//_hsv[0] = angle;
+			//_hsv[1] = Mat::ones(angle.size(), CV_32F);
+			//_hsv[2] = magn_norm;
+			//merge(_hsv, 3, hsv);
+			//hsv.convertTo(hsv8, CV_8U, 255.0);
+			//cvtColor(hsv8, bgr, COLOR_HSV2BGR);
+			//imshow("frame2", bgr);*/
+
+			//imshow("magnitude", magn_norm);
+
+			//Mat magn_thresh;
+			//threshold(magn_norm, magn_thresh, 0.1, 255, cv::THRESH_BINARY);
+
+			//imshow("thresholded", magn_thresh);
+
+			//prevFrameGray = frameGray;
 
 			auto t2 = chrono::steady_clock::now();
 			auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
 			cout << duration << endl;
 
+			waitKey(0);
 
 			//auto size = frame.size();
 			//vector<Point2f> result = {};
