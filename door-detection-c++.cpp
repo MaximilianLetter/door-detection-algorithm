@@ -13,7 +13,7 @@ using namespace cv;
 using namespace std;
 
 // Declare all used constants
-const int RES = 180;
+const int RES = 360;
 
 const float CONTRAST = 1.2;
 
@@ -37,22 +37,22 @@ const bool CORNERS_HARRIS = false;
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
-const float LINE_ANGLE_MIN = 0.875; // RAD
+const float LINE_ANGLE_MIN = 0.825; // RAD from  0.875
 
 // Rectangles constants
-const float ANGLE_MAX = 0.175; // RAD
-const float LENGTH_DIFF_MAX = 0.12;
+const float ANGLE_MAX = 0.175; // RAD from 0.175
+const float LENGTH_DIFF_MAX = 0.12; // from 0.12
 const float ASPECT_RATIO_MIN = 0.3;
 const float ASPECT_RATIO_MAX = 0.8;
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
-const float RECTANGLE_THRESH = 10.0;
-const float RECTANGLE_OPPOSITE_THRESH = 10.0;
+const float RECTANGLE_THRESH = 10.0; //from 10.0
+const float RECTANGLE_OPPOSITE_THRESH = 10.0; //from 10.0
 
 // Comparison of rectangles to edges constants
-const float RECT_THRESH = 0.85;
+const float RECT_THRESH = 0.75; // from 0.85
 const float LINE_THRESH = 0.5;
-const int LINE_WIDTH = 2;
+const int LINE_WIDTH = 4;
 const float BOT_LINE_BONUS = 0.25;
 
 // Selection of best candidate constants
@@ -62,8 +62,8 @@ const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
-bool detect(Mat& image, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
+bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, vector<float> depths, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
@@ -92,40 +92,40 @@ int main(int argc, char** argv)
 
 	if (!video)
 	{
-		Mat image;
-		image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
+		//Mat image;
+		//image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
 
-		if (image.empty()) // Check for invalid input
-		{
-			cout << "Could not open or find the image" << std::endl;
-			return -1;
-		}
+		//if (image.empty()) // Check for invalid input
+		//{
+		//	cout << "Could not open or find the image" << std::endl;
+		//	return -1;
+		//}
 
-		vector<Point2f> result = {};
-		bool success = detect(image, result);
+		//vector<Point2f> result = {};
+		//bool success = detect(image, result);
 
-		if (result.size() > 0)
-		{
-			cout << "DOOR FOUND" << endl;
+		//if (result.size() > 0)
+		//{
+		//	cout << "DOOR FOUND" << endl;
 
-			// Scale up to match input size (6x for FHD, 4x for HD)
-			for (int i = 0; i < result.size(); i++)
-			{
-				result[i] = result[i] * 17;
-			}
+		//	// Scale up to match input size (6x for FHD, 4x for HD)
+		//	for (int i = 0; i < result.size(); i++)
+		//	{
+		//		result[i] = result[i] * 17;
+		//	}
 
-			line(image, result[0], result[1], Scalar(255, 255, 0), 5);
-			line(image, result[1], result[2], Scalar(255, 255, 0), 5);
-			line(image, result[2], result[3], Scalar(255, 255, 0), 5);
-			line(image, result[3], result[0], Scalar(255, 255, 0), 5);
-		}
-		else {
-			cout << "NO DOOR" << endl;
-		}
+		//	line(image, result[0], result[1], Scalar(255, 255, 0), 5);
+		//	line(image, result[1], result[2], Scalar(255, 255, 0), 5);
+		//	line(image, result[2], result[3], Scalar(255, 255, 0), 5);
+		//	line(image, result[3], result[0], Scalar(255, 255, 0), 5);
+		//}
+		//else {
+		//	cout << "NO DOOR" << endl;
+		//}
 
-		resize(image, image, image.size() / 6);
-		imshow("Display window", image);
-		waitKey(0);
+		//resize(image, image, image.size() / 6);
+		//imshow("Display window", image);
+		//waitKey(0);
 	}
 	else
 	{
@@ -158,10 +158,10 @@ int main(int argc, char** argv)
 		cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
 
 		// Find trackables
-		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.05, 15, Mat(), 7, false, 0.04);
+		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.025, 20, Mat(), 7, false, 0.04);
 
 		// Mask for some reason 
-		Mat mask = Mat::zeros(prevFrame.size(), prevFrame.type());
+		Mat drawMask = Mat::zeros(prevFrame.size(), prevFrame.type());
 		vector<float> longTimeDistances;
 		
 		int frameCount = 0;
@@ -191,17 +191,6 @@ int main(int argc, char** argv)
 			vector<bool> pointControl;
 			bool pointLost = false;
 
-			Scalar far4 = Scalar(0, 0, 0);
-			Scalar far3 = Scalar(25, 25, 25);
-			Scalar far2 = Scalar(50, 50, 50);
-			Scalar far1 = Scalar(75, 75, 75);
-			Scalar far0 = Scalar(100, 100, 100);
-			Scalar close0 = Scalar(125, 125, 125);
-			Scalar close1 = Scalar(150, 150, 150);
-			Scalar close2 = Scalar(175, 175, 175);
-			Scalar close3 = Scalar(200, 200, 200);
-			Scalar close4 = Scalar(225, 225, 225);
-
 			vector<float> distances;
 			for (uint i = 0; i < p0.size(); i++)
 			{
@@ -215,7 +204,7 @@ int main(int argc, char** argv)
 					pointControl.push_back(true);
 
 					// draw the tracks
-					line(mask, p1[i], p0[i], Scalar(255, 255, 255), 2);
+					line(drawMask, p1[i], p0[i], Scalar(255, 255, 255), 2);
 					/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
 				}
 				else
@@ -272,7 +261,7 @@ int main(int argc, char** argv)
 			float ratio = min / max;
 			float avg = allDists / longTimeDistances.size();
 
-			cout << endl;
+			/*cout << endl;
 			cout << "frame: " << frameCount << endl;
 			cout << "amountPoints: " << good_new.size() << endl;
 			cout << "min: " << min << endl;
@@ -280,65 +269,61 @@ int main(int argc, char** argv)
 			cout << "range: " << range << endl;
 			cout << "ratio: " << ratio << endl;
 			cout << "average: " << avg << endl;
-			cout <<  "------------" << endl;
-			
-			float groupStep = range / 10;
+			cout <<  "------------" << endl;*/
 
 			// Draw a result
-			for (uint i = 0; i < good_new.size(); i++)
+			/*for (uint i = 0; i < good_new.size(); i++)
 			{
 				float depthToColor = 255 * ((longTimeDistances[i] - min) / range);
 				Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
 				circle(frame, good_new[i], 5, col, -1);
-			}
+			}*/
 
 			Mat img;
 			//add(frame, mask, img);
 			img = frame;
 			imshow("Frame", img);
-			imshow("Mask", mask);
+			imshow("Mask", drawMask);
 
 			prevFrameGray = frameGray.clone();
 			p0 = good_new;
-
-
-			//Mat flow(prevFrameGray.size(), CV_32FC2);
-			//calcOpticalFlowFarneback(prevFrameGray, frameGray, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
-
-			//// visualization
-			//Mat flow_parts[2];
-			//split(flow, flow_parts);
-			//Mat magnitude, angle, magn_norm;
-			//cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
-			//normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
-			//
-			////angle *= ((1.f / 360.f) * (180.f / 255.f));
-
-			////build hsv image
-			///*Mat _hsv[3], hsv, hsv8, bgr;
-			//_hsv[0] = angle;
-			//_hsv[1] = Mat::ones(angle.size(), CV_32F);
-			//_hsv[2] = magn_norm;
-			//merge(_hsv, 3, hsv);
-			//hsv.convertTo(hsv8, CV_8U, 255.0);
-			//cvtColor(hsv8, bgr, COLOR_HSV2BGR);
-			//imshow("frame2", bgr);*/
-
-			//imshow("magnitude", magn_norm);
-
-			//Mat magn_thresh;
-			//threshold(magn_norm, magn_thresh, 0.1, 255, cv::THRESH_BINARY);
-
-			//imshow("thresholded", magn_thresh);
-
-			//prevFrameGray = frameGray;
 
 			auto t2 = chrono::steady_clock::now();
 			auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
 			cout << duration << endl;
 
-			waitKey(0);
+			//waitKey(0);
+			// DETECT A DOOR NOW
+			if ((char)waitKey(1) == 49)
+			{
+				auto size = frame.size();
+				vector<Point2f> result = {};
+
+				bool success = detect(frame, good_new, longTimeDistances, result);
+
+				//resize(frame, frame, size);
+
+
+				if (result.size() > 0)
+				{
+					// Scale up to match input size (6x for FHD, 4x for HD)
+					/*for (int i = 0; i < result.size(); i++)
+					{
+						result[i] = result[i] * 4;
+					}*/
+
+					line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
+					line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
+					line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
+					line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
+				}
+
+				imshow("Display window", frame);
+
+				cout << endl << "result " << result.size() << endl;
+				(char)waitKey(0);
+			}
 
 			//auto size = frame.size();
 			//vector<Point2f> result = {};
@@ -365,8 +350,7 @@ int main(int argc, char** argv)
 			//imshow("Display window", frame);
 			//video.write(frame);
 
-			char c = (char)waitKey(25);
-			if (c == 27) break;
+			if ((char)waitKey(1) == 27) break;
 		}
 
 		cap.release();
@@ -378,7 +362,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& input, vector<Point2f>& result)
+bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -386,18 +370,19 @@ bool detect(Mat& input, vector<Point2f>& result)
 	input.copyTo(image);
 
 	// Scale image down
-	int width = image.size().width;
+	/*int width = image.size().width;
 	int height = image.size().height;
 	float ratio = float(height) / float(width);
-	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
+	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);*/
 	// NOTE: different interpolation methods can be used
+	float ratio = float(image.size().height) / float(image.size().width);
 
 	// Convert to grayscale
 	Mat gray;
 	cvtColor(image, gray, COLOR_BGR2GRAY);
 
 	// Increase contrast
-	gray.convertTo(gray, -1, CONTRAST, 0);
+	//gray.convertTo(gray, -1, CONTRAST, 0);
 
 	// Blur the image
 	Mat blurred;
@@ -409,22 +394,34 @@ bool detect(Mat& input, vector<Point2f>& result)
 	imshow("Edges window", edges);
 
 	// Generate mask and find corners
-	vector<Point2f> corners;
+	/*vector<Point2f> corners;
 	Mat mask;
 
 	mask = Mat::zeros(image.size(), CV_8U);
 	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
 	mask(rect) = 1;
 
-	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);*/
 
-	for (int i = 0; i < corners.size(); i++)
+	/*for (int i = 0; i < corners.size(); i++)
 	{
 		circle(blurred, corners[i], 3, Scalar(0, 0, 255), -1);
+	}*/
+
+	float min = *min_element(depths.begin(), depths.end());
+	float max = *max_element(depths.begin(), depths.end());
+	float range = max - min;
+
+	for (uint i = 0; i < points.size(); i++)
+	{
+		float depthToColor = 255 * ((depths[i] - min) / range);
+		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
+
+		circle(blurred, points[i], 5, col, -1);
 	}
 
 	// Connect corners to vertical lines
-	vector<vector<Point2f>> lines = cornersToVertLines(corners, int(RES * ratio));
+	vector<vector<Point2f>> lines = cornersToVertLines(points, depths, int(RES * ratio));
 
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
@@ -443,6 +440,8 @@ bool detect(Mat& input, vector<Point2f>& result)
 			scores.push_back(result);
 		}
 	}
+	cout << endl << "candidates " << candidates.size() << endl;
+
 	for (int i = 0; i < candidates.size(); i++)
 	{
 		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
@@ -469,18 +468,42 @@ bool detect(Mat& input, vector<Point2f>& result)
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, vector<float> depths, int height)
 {
 	float lengthMax = LINE_MAX * height;
 	float lengthMin = LINE_MIN * height;
+
+	float min = *min_element(depths.begin(), depths.end());
+	float max = *max_element(depths.begin(), depths.end());
+	float range = max - min;
+	float depthDiff = range * 0.5;
+	float depthExtremeMin = min + range * 0.1;
+	float depthExtremeMax = max - range * 0.1;
 
 	vector<vector<Point2f>> lines;
 
 	for (int i = 0; i < corners.size(); i++)
 	{
+		float iDepth = depths[i];
+		if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
+		{
+			continue;
+		}
+
 		for (int j = 0; j < corners.size(); j++)
 		{
 			if (j <= i) continue;
+
+			float jDepth = depths[j];
+			if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
+			{
+				continue;
+			}
+
+			if (abs(iDepth - jDepth) > depthDiff)
+			{
+				continue;
+			}
 
 			float distance = getDistance(corners[i], corners[j]);
 			if (distance < lengthMin || distance > lengthMax)
@@ -645,6 +668,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 
 	// Get average fillRatio for all lines but bottom line
 	result = (result / 3) + bottomBonus;
+	cout << result << endl;
 
 	return result;
 }
@@ -657,24 +681,24 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 	{
 		// NOTE: this can be a trap and should be somewhat dynamic
 		// Test if inner content has a different color average
-		int left = (candidates[i][0].x + candidates[i][1].x) / 2;
-		int top = (candidates[i][1].y + candidates[i][2].y) / 2;
-		int right = (candidates[i][2].x + candidates[i][3].x) / 2;
-		int bottom = (candidates[i][3].y + candidates[i][0].y) / 2;
+		//int left = (candidates[i][0].x + candidates[i][1].x) / 2;
+		//int top = (candidates[i][1].y + candidates[i][2].y) / 2;
+		//int right = (candidates[i][2].x + candidates[i][3].x) / 2;
+		//int bottom = (candidates[i][3].y + candidates[i][0].y) / 2;
 
-		// This whole process of masking the image seems like a workaround
-		Rect rect = Rect(Point2i(left, bottom), Point2i(right, top));
-		Mat mask = Mat::zeros(gray.size(), CV_8U);
-		rectangle(mask, rect, 1);
+		//// This whole process of masking the image seems like a workaround
+		//Rect rect = Rect(Point2i(left, bottom), Point2i(right, top));
+		//Mat mask = Mat::zeros(gray.size(), CV_8U);
+		//rectangle(mask, rect, 1);
 
-		double inner = mean(gray, mask)[0];
-		mask = 1 - mask;
-		double outer = mean(gray, mask)[0];
+		//double inner = mean(gray, mask)[0];
+		//mask = 1 - mask;
+		//double outer = mean(gray, mask)[0];
 
-		if (abs(inner - outer) > COLOR_DIFF_THRESH)
-		{
-			scores[i] *= UPVOTE_FACTOR;
-		}
+		//if (abs(inner - outer) > COLOR_DIFF_THRESH)
+		//{
+		//	scores[i] *= UPVOTE_FACTOR;
+		//}
 
 		// Test for corner angles
 		/*float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
