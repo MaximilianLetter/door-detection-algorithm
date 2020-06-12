@@ -243,18 +243,13 @@ int main(int argc, char** argv)
 					vector<float> updDistances;
 					for (uint i = 0; i < longTimeDistances.size(); i++)
 					{
+						// If point i was a good point
 						if (pointControl[i])
 						{
 							updDistances.push_back(longTimeDistances[i]);
 						}
-
-						// i is NOT a lost point
-						/*if (std::find(lostPoints.begin(), lostPoints.end(), i) == lostPoints.end()) {
-							updDistances.push_back(longTimeDistances[i]);
-						}*/
 					}
 
-					longTimeDistances.clear();
 					longTimeDistances = updDistances;
 				}
 
@@ -289,54 +284,13 @@ int main(int argc, char** argv)
 			
 			float groupStep = range / 10;
 
-			//TODO disable the lowest and highest 2  to see what could be a door
 			// Draw a result
 			for (uint i = 0; i < good_new.size(); i++)
 			{
-				Scalar col;
+				float depthToColor = 255 * ((longTimeDistances[i] - min) / range);
+				Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
-				if (longTimeDistances[i] <= min + groupStep)
-				{
-					col = far4;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 2)
-				{
-					col = far3;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 3)
-				{
-					col = far2;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 4)
-				{
-					col = far1;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 5)
-				{
-					col = far0;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 6)
-				{
-					col = close0;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 7)
-				{
-					col = close1;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 8)
-				{
-					col = close2;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 9)
-				{
-					col = close3;
-				}
-				else if (longTimeDistances[i] <= min + groupStep * 10)
-				{
-					col = close4;
-				}
-
-				circle(frame, p1[i], 5, col, -1);
+				circle(frame, good_new[i], 5, col, -1);
 			}
 
 			Mat img;
