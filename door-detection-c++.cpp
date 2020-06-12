@@ -158,7 +158,7 @@ int main(int argc, char** argv)
 		cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
 
 		// Find trackables
-		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.025, 20, Mat(), 7, false, 0.04);
+		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
 
 		// Mask for some reason 
 		Mat drawMask = Mat::zeros(prevFrame.size(), prevFrame.type());
