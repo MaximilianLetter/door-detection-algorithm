@@ -162,10 +162,15 @@ int main(int argc, char** argv)
 
 		// Mask for some reason 
 		Mat mask = Mat::zeros(prevFrame.size(), prevFrame.type());
+		vector<float> longTimeDistances;
+		
+		int frameCount = 0;
 
 		while (1)
 		{
 			auto t1 = chrono::steady_clock::now();
+
+			frameCount++;
 
 			Mat frame, frameGray;
 			cap >> frame;
@@ -183,13 +188,21 @@ int main(int argc, char** argv)
 			calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
 			vector<Point2f> good_new;
 
-			// Close is RED
-			Scalar close = Scalar(0, 0, 255);
-			// Far is BLUE
-			Scalar far = Scalar(255, 0, 0);
+			vector<bool> pointControl;
+			bool pointLost = false;
+
+			Scalar far4 = Scalar(0, 0, 0);
+			Scalar far3 = Scalar(25, 25, 25);
+			Scalar far2 = Scalar(50, 50, 50);
+			Scalar far1 = Scalar(75, 75, 75);
+			Scalar far0 = Scalar(100, 100, 100);
+			Scalar close0 = Scalar(125, 125, 125);
+			Scalar close1 = Scalar(150, 150, 150);
+			Scalar close2 = Scalar(175, 175, 175);
+			Scalar close3 = Scalar(200, 200, 200);
+			Scalar close4 = Scalar(225, 225, 225);
 
 			vector<float> distances;
-			float allDists = 0;
 			for (uint i = 0; i < p0.size(); i++)
 			{
 				// Select good points
@@ -197,23 +210,76 @@ int main(int argc, char** argv)
 					good_new.push_back(p1[i]);
 
 					float dist = getDistance(p0[i], p1[i]);
-					allDists += dist;
-					cout << dist;
+					//cout << dist;
 					distances.push_back(dist);
+					pointControl.push_back(true);
 
 					// draw the tracks
 					line(mask, p1[i], p0[i], Scalar(255, 255, 255), 2);
 					/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
 				}
+				else
+				{
+					pointLost = true;
+					pointControl.push_back(false);
+				}
 			}
 
-			float min = *min_element(distances.begin(), distances.end());
+			
+			float allDists = 0;
+			// first frame ~
+			if (longTimeDistances.size() == 0)
+			{
+				longTimeDistances = distances;
+			}
+			else
+			{
+				if (pointLost)
+				{
+					// override longTimeDistances
+					cout << endl << "OVERRIDE" << endl;
+
+					// TODO some points slide around and mess up the result -> TODO
+					vector<float> updDistances;
+					for (uint i = 0; i < longTimeDistances.size(); i++)
+					{
+						if (pointControl[i])
+						{
+							updDistances.push_back(longTimeDistances[i]);
+						}
+
+						// i is NOT a lost point
+						/*if (std::find(lostPoints.begin(), lostPoints.end(), i) == lostPoints.end()) {
+							updDistances.push_back(longTimeDistances[i]);
+						}*/
+					}
+
+					longTimeDistances.clear();
+					longTimeDistances = updDistances;
+				}
+
+				for (uint i = 0; i < distances.size(); i++)
+				{
+					longTimeDistances[i] += distances[i];
+					allDists += longTimeDistances[i];
+				}
+			}
+
+			/*float min = *min_element(distances.begin(), distances.end());
 			float max = *max_element(distances.begin(), distances.end());
 			float range = max - min;
 			float ratio = min / max;
-			float avg = allDists / distances.size();
+			float avg = allDists / distances.size();*/
+
+			float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
+			float max = *max_element(longTimeDistances.begin(), longTimeDistances.end());
+			float range = max - min;
+			float ratio = min / max;
+			float avg = allDists / longTimeDistances.size();
 
 			cout << endl;
+			cout << "frame: " << frameCount << endl;
+			cout << "amountPoints: " << good_new.size() << endl;
 			cout << "min: " << min << endl;
 			cout << "max: " << max << endl;
 			cout << "range: " << range << endl;
@@ -221,17 +287,55 @@ int main(int argc, char** argv)
 			cout << "average: " << avg << endl;
 			cout <<  "------------" << endl;
 			
+			float groupStep = range / 10;
+
+			//TODO disable the lowest and highest 2  to see what could be a door
+			// Draw a result
 			for (uint i = 0; i < good_new.size(); i++)
 			{
 				Scalar col;
-				if (distances[i] >= avg)
+
+				if (longTimeDistances[i] <= min + groupStep)
 				{
-					col = close;
+					col = far4;
 				}
-				else
+				else if (longTimeDistances[i] <= min + groupStep * 2)
 				{
-					col = far;
+					col = far3;
 				}
+				else if (longTimeDistances[i] <= min + groupStep * 3)
+				{
+					col = far2;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 4)
+				{
+					col = far1;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 5)
+				{
+					col = far0;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 6)
+				{
+					col = close0;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 7)
+				{
+					col = close1;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 8)
+				{
+					col = close2;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 9)
+				{
+					col = close3;
+				}
+				else if (longTimeDistances[i] <= min + groupStep * 10)
+				{
+					col = close4;
+				}
+
 				circle(frame, p1[i], 5, col, -1);
 			}
 
