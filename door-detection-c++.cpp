@@ -61,13 +61,14 @@ const float UPVOTE_FACTOR = 1.2;
 const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
 const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
+const float CLOSE_TO_INPUT_THRESH = 20.0;
 
 // Declare all used functions
 bool detect(Mat& image, Point2f point, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point inputPoint, Mat gray);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
@@ -291,7 +292,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
-		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+		vector<Point2f> door = selectBestCandidate(candidates, scores, inputPoint, gray);
 		result = door;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
@@ -487,7 +488,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point inputPoint, Mat gray)
 {
 	cout << candidates.size() << "size" << endl;
 	for (int i = 0; i < candidates.size(); i++)
@@ -538,6 +539,17 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 				scores[i] = scores[i] * UPVOTE_FACTOR;
 			}
 		}
+
+		// Check how close the bottom line center is to the input point
+		Point2f bottomCenterPoint = (candidates[i][3] + candidates[i][0]) / 2;
+
+		if (getDistance(bottomCenterPoint, inputPoint) < CLOSE_TO_INPUT_THRESH)
+		{
+			scores[i] *= UPVOTE_FACTOR;
+		}
+		//cout << "POINT1: " << candidates[i][3].x << " " << candidates[i][3].y << endl;
+		//cout << "POINT2: " << candidates[i][0].x << " " << candidates[i][0].y << endl;
+		//cout << "POINTBetween: " << bottomCenterPoint.x << " " << bottomCenterPoint.y << endl;
 
 		//cout << scores[i];
 	}
