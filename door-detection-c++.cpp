@@ -10,8 +10,10 @@
 using namespace cv;
 using namespace std;
 
+Mat globalImg;
+
 // Declare all used constants
-const int RES = 180;
+const int RES = 360;
 
 const float CONTRAST = 1.2;
 
@@ -50,7 +52,7 @@ const float RECTANGLE_OPPOSITE_THRESH = 10.0;
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.85;
 const float LINE_THRESH = 0.5;
-const int LINE_WIDTH = 2;
+const int LINE_WIDTH = 4;
 const float BOT_LINE_BONUS = 0.25;
 
 // Selection of best candidate constants
@@ -70,6 +72,8 @@ float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
 
+void clickCallBack(int event, int x, int y, int flags, void* userdata);
+
 int main(int argc, char** argv)
 {
 	String fileName = "door_1.jpg";
@@ -87,6 +91,8 @@ int main(int argc, char** argv)
 	namedWindow("Display window", WINDOW_AUTOSIZE);
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
 	namedWindow("Dev window", WINDOW_AUTOSIZE);
+
+	setMouseCallback("Display window", clickCallBack, NULL);
 
 	if (!video)
 	{
@@ -144,36 +150,19 @@ int main(int argc, char** argv)
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
+		Mat frame;
+
 		while (1)
 		{
-			Mat frame;
 			cap >> frame;
 
 			if (frame.empty()) break;
 
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
-			//auto size = frame.size();
-			vector<Point2f> result = {};
-
-			bool success = detect(frame, result);
-
-			//resize(frame, frame, size);
-
-			if (result.size() > 0)
-			{
-				// Scale up to match input size (6x for FHD, 4x for HD)
-				for (int i = 0; i < result.size(); i++)
-				{
-					result[i] = result[i] * 6;
-				}
-
-				line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-				line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-				line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-				line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-			}
-
 			resize(frame, frame, frame.size() / 2);
+
+			frame.copyTo(globalImg);
+
 			imshow("Display window", frame);
 			video.write(frame);
 
@@ -553,4 +542,32 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
 	angle = abs(acos(angle) * 180/M_PI);
 
 	return angle;
+}
+
+void clickCallBack(int event, int x, int y, int flags, void* userdata)
+{
+	if (event == EVENT_LBUTTONDOWN)
+	{
+		cout << "Position (" << x << ", " << y << ")" << endl;
+
+		vector<Point2f> result = {};
+		bool success = detect(globalImg, result);
+
+		if (result.size() > 0)
+		{
+			// Scale up to match input size (6x for FHD, 4x for HD)
+			/*for (int i = 0; i < result.size(); i++)
+			{
+				result[i] = result[i] * 6;
+			}*/
+			cout << "FOUND" << endl;
+
+			line(globalImg, result[0], result[1], Scalar(255, 255, 0), 2);
+			line(globalImg, result[1], result[2], Scalar(255, 255, 0), 2);
+			line(globalImg, result[2], result[3], Scalar(255, 255, 0), 2);
+			line(globalImg, result[3], result[0], Scalar(255, 255, 0), 2);
+		}
+
+		imshow("result", globalImg);
+	}
 }
