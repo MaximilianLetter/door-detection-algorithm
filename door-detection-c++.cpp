@@ -211,31 +211,47 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 
 
 	// Find ROI based on inputPoint
-	int roiWidth = width * 0.8;
-	int roiHeight = height * 0.125;
-	Point2f roiPoint = Point2f(inputPoint.x - roiWidth / 2, inputPoint.y - roiHeight / 2);
-	Rect roi = Rect(roiPoint.x, roiPoint.y, roiWidth, roiHeight);
-	// Display for testing
-	//rectangle(blurred, roi, 255, -1);
+	int roiBotWidth = width * 0.8;
+	int roiBotHeight = height * 0.125;
+	Point2f roiPoint = Point2f(inputPoint.x - roiBotWidth / 2, inputPoint.y - roiBotHeight / 2);
+	Rect roiBot = Rect(roiPoint.x, roiPoint.y, roiBotWidth, roiBotHeight);
 
-	// Generate mask and find corners
-	vector<Point2f> corners;
+	// Cut overlapping parts off
+	roiBot = roiBot & Rect(0, 0, width, height);
+
+	// Generate mask and find bottom corners
+	vector<Point2f> cornersBot, cornersTop;
+
 	Mat mask;
-
 	mask = Mat::zeros(image.size(), CV_8U);
-	mask(roi) = 1;
-	/*vector<Point2f> corners;
-	Mat mask;
+	mask(roiBot) = 1;
 
+	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+
+	// Extract top corners to join
+	int lowLineBot = roiBot.y + (roiBot.height / 2);
+	int roiTopHeight = lowLineBot - (LINE_MIN * height);
+	//line(blurred, Point2f(5, roiTopHeight), Point2f(width-5, roiTopHeight), 255, 3);
+
+	Rect roiTop = Rect(0, 0, width, roiTopHeight);
 	mask = Mat::zeros(image.size(), CV_8U);
-	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
-	mask(rect) = 1;*/
+	mask(roiTop) = 1;
 
-	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
 
-	for (int i = 0; i < corners.size(); i++)
+
+	// for testing
+	vector<Point2f> corners = cornersBot;
+
+
+	for (int i = 0; i < cornersBot.size(); i++)
 	{
-		circle(blurred, corners[i], 3, Scalar(0, 0, 255), -1);
+		circle(blurred, cornersBot[i], 3, 255, -1);
+	}
+
+	for (int i = 0; i < cornersTop.size(); i++)
+	{
+		circle(blurred, cornersTop[i], 3, 255, -1);
 	}
 
 	// Connect corners to vertical lines
