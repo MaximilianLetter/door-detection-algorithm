@@ -29,7 +29,8 @@ const int CANNY_UPPER = 200;
 // Corner detection constants
 const int CORNERS_MAX = 50;
 //const float CORNERS_QUALITY = 0.01;
-const float CORNERS_QUALITY = 0.05;
+const float CORNERS_BOT_QUALITY = 0.05;
+const float CORNERS_TOP_QUALITY = 0.01;
 const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
@@ -63,7 +64,7 @@ const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
 bool detect(Mat& image, Point2f point, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
@@ -226,7 +227,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	mask = Mat::zeros(image.size(), CV_8U);
 	mask(roiBot) = 1;
 
-	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_BOT_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
 
 	// Extract top corners to join
 	int lowLineBot = roiBot.y + (roiBot.height / 2);
@@ -237,11 +238,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	mask = Mat::zeros(image.size(), CV_8U);
 	mask(roiTop) = 1;
 
-	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
-
-
-	// for testing
-	vector<Point2f> corners = cornersBot;
+	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
 
 
 	for (int i = 0; i < cornersBot.size(); i++)
@@ -255,7 +252,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	}
 
 	// Connect corners to vertical lines
-	vector<vector<Point2f>> lines = cornersToVertLines(corners, int(RES * ratio));
+	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop, int(RES * ratio));
 
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
@@ -300,40 +297,42 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, int height)
 {
 	float lengthMax = LINE_MAX * height;
 	float lengthMin = LINE_MIN * height;
 
 	vector<vector<Point2f>> lines;
 
-	for (int i = 0; i < corners.size(); i++)
+	for (int i = 0; i < cornersBot.size(); i++)
 	{
-		for (int j = 0; j < corners.size(); j++)
+		for (int j = 0; j < cornersTop.size(); j++)
 		{
-			if (j <= i) continue;
+			/*if (j <= i) continue;
 
 			float distance = getDistance(corners[i], corners[j]);
 			if (distance < lengthMin || distance > lengthMax)
 			{
 				continue;
-			}
+			}*/
 
-			float orientation = getOrientation(corners[i], corners[j]);
+			float orientation = getOrientation(cornersBot[i], cornersTop[j]);
 			if (orientation < LINE_ANGLE_MIN)
 			{
 				continue;
 			}
 
 			// Sort by y-value, so that the high points are first
-			vector<Point2f> line;
+			/*vector<Point2f> line;
 			if (corners[i].y < corners[j].y)
 			{
 				line = { corners[i], corners[j] };
 			}
 			else {
 				line = { corners[j], corners[i] };
-			}
+			}*/
+
+			vector<Point2f> line = { cornersTop[j], cornersBot[i] };
 			lines.push_back(line);
 		}
 	}
@@ -593,5 +592,6 @@ void clickCallBack(int event, int x, int y, int flags, void* userdata)
 		}
 
 		imshow("result", globalImg);
+		waitKey(0);
 	}
 }
