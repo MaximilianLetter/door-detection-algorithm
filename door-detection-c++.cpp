@@ -62,7 +62,7 @@ const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
-bool detect(Mat& image, vector<Point2f>& result);
+bool detect(Mat& image, Point2f point, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
@@ -106,7 +106,7 @@ int main(int argc, char** argv)
 		}
 
 		vector<Point2f> result = {};
-		bool success = detect(image, result);
+		bool success = detect(image, Point2f(), result);
 
 		if (result.size() > 0)
 		{
@@ -179,7 +179,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& input, vector<Point2f>& result)
+bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -190,8 +190,8 @@ bool detect(Mat& input, vector<Point2f>& result)
 	int width = image.size().width;
 	int height = image.size().height;
 	float ratio = float(height) / float(width);
-	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
-	// NOTE: different interpolation methods can be used
+	//resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
+	// NOTE: It was already resized
 
 	// Convert to grayscale
 	Mat gray;
@@ -209,13 +209,27 @@ bool detect(Mat& input, vector<Point2f>& result)
 	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
 	imshow("Edges window", edges);
 
+
+	// Find ROI based on inputPoint
+	int roiWidth = width * 0.8;
+	int roiHeight = height * 0.125;
+	Point2f roiPoint = Point2f(inputPoint.x - roiWidth / 2, inputPoint.y - roiHeight / 2);
+	Rect roi = Rect(roiPoint.x, roiPoint.y, roiWidth, roiHeight);
+	// Display for testing
+	//rectangle(blurred, roi, 255, -1);
+
 	// Generate mask and find corners
 	vector<Point2f> corners;
 	Mat mask;
 
 	mask = Mat::zeros(image.size(), CV_8U);
+	mask(roi) = 1;
+	/*vector<Point2f> corners;
+	Mat mask;
+
+	mask = Mat::zeros(image.size(), CV_8U);
 	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
-	mask(rect) = 1;
+	mask(rect) = 1;*/
 
 	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
 
@@ -549,19 +563,13 @@ void clickCallBack(int event, int x, int y, int flags, void* userdata)
 	if (event == EVENT_LBUTTONDOWN)
 	{
 		cout << "Position (" << x << ", " << y << ")" << endl;
+		Point2f point = Point2f(x, y);
 
 		vector<Point2f> result = {};
-		bool success = detect(globalImg, result);
+		bool success = detect(globalImg, point, result);
 
 		if (result.size() > 0)
 		{
-			// Scale up to match input size (6x for FHD, 4x for HD)
-			/*for (int i = 0; i < result.size(); i++)
-			{
-				result[i] = result[i] * 6;
-			}*/
-			cout << "FOUND" << endl;
-
 			line(globalImg, result[0], result[1], Scalar(255, 255, 0), 2);
 			line(globalImg, result[1], result[2], Scalar(255, 255, 0), 2);
 			line(globalImg, result[2], result[3], Scalar(255, 255, 0), 2);
