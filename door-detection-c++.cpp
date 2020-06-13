@@ -234,9 +234,16 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	int roiTopHeight = lowLineBot - (LINE_MIN * height);
 	//line(blurred, Point2f(5, roiTopHeight), Point2f(width-5, roiTopHeight), 255, 3);
 
-	Rect roiTop = Rect(0, 0, width, roiTopHeight);
+	// NOTE: order matters
+	Point polygonPoints[4] = {
+		Point(0, 0),
+		Point(width, 0),
+		Point(roiBot.x + roiBot.width, roiTopHeight),
+		Point(roiBot.x, roiTopHeight)
+	};
+
 	mask = Mat::zeros(image.size(), CV_8U);
-	mask(roiTop) = 1;
+	fillConvexPoly(mask, polygonPoints, 4, cv::Scalar(255));
 
 	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
 
