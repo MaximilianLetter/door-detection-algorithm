@@ -15,6 +15,9 @@ Mat globalImg;
 // Declare all used constants
 const int RES = 360;
 
+const float ROI_WIDTH = 0.8;
+const float ROI_HEIGHT = 0.125;
+
 const float CONTRAST = 1.2;
 
 // Blur constants
@@ -32,11 +35,11 @@ const int CORNERS_MAX = 50;
 const float CORNERS_BOT_QUALITY = 0.05;
 const float CORNERS_TOP_QUALITY = 0.01;
 const float CORNERS_MIN_DIST = 15.0;
-const int CORNERS_MASK_OFFSET = 10;
+//const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
 
 // Vertical lines constants
-const float LINE_MAX = 0.9;
+//const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
 const float LINE_ANGLE_MIN = 0.875; // RAD
 
@@ -65,10 +68,10 @@ const float CLOSE_TO_INPUT_THRESH = 20.0;
 
 // Declare all used functions
 bool detect(Mat& image, Point2f point, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, int height);
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point inputPoint, Mat gray);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point2f inputPoint, Mat gray);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
@@ -148,7 +151,7 @@ int main(int argc, char** argv)
 		// frames get loaded rotated -> flip width and height
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
-		cout << frameWidth;
+		cout << frameWidth << " " << frameHeight;
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
@@ -161,7 +164,8 @@ int main(int argc, char** argv)
 			if (frame.empty()) break;
 
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
-			resize(frame, frame, frame.size() / 2);
+			resize(frame, frame, frame.size() / 4);
+
 
 			frame.copyTo(globalImg);
 
@@ -191,7 +195,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	// Scale image down
 	int width = image.size().width;
 	int height = image.size().height;
-	float ratio = float(height) / float(width);
+	//float ratio = float(height) / float(width);
 	//resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
 	// NOTE: It was already resized
 
@@ -211,27 +215,26 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
 	imshow("Edges window", edges);
 
+	// Find ROI's based on user input
+	Mat maskBot, maskTop;
+	vector<Point2f> cornersBot, cornersTop;
+
 
 	// Find ROI based on inputPoint
-	int roiBotWidth = width * 0.8;
-	int roiBotHeight = height * 0.125;
+	int roiBotWidth = width * ROI_WIDTH;
+	int roiBotHeight = height * ROI_HEIGHT;
 	Point2f roiPoint = Point2f(inputPoint.x - roiBotWidth / 2, inputPoint.y - roiBotHeight / 2);
 	Rect roiBot = Rect(roiPoint.x, roiPoint.y, roiBotWidth, roiBotHeight);
 
 	// Cut overlapping parts off
 	roiBot = roiBot & Rect(0, 0, width, height);
 
-	// Generate mask and find bottom corners
-	vector<Point2f> cornersBot, cornersTop;
+	maskBot = Mat::zeros(image.size(), CV_8U);
+	maskBot(roiBot) = 1;
 
-	Mat mask;
-	mask = Mat::zeros(image.size(), CV_8U);
-	mask(roiBot) = 1;
-
-	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_BOT_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
-
+	
 	// Extract top corners to join
-	int lowLineBot = roiBot.y + (roiBot.height / 2);
+	int lowLineBot = roiBot.y + roiBot.height;
 	int roiTopHeight = lowLineBot - (LINE_MIN * height);
 	//line(blurred, Point2f(5, roiTopHeight), Point2f(width-5, roiTopHeight), 255, 3);
 
@@ -243,10 +246,12 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 		Point(roiBot.x, roiTopHeight)
 	};
 
-	mask = Mat::zeros(image.size(), CV_8U);
-	fillConvexPoly(mask, polygonPoints, 4, cv::Scalar(255));
+	maskTop = Mat::zeros(image.size(), CV_8U);
+    fillConvexPoly(maskTop, polygonPoints, 4, cv::Scalar(255));
 
-	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+	
+	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_BOT_QUALITY, CORNERS_MIN_DIST, maskBot, 3, CORNERS_HARRIS);
+	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, maskTop, 3, CORNERS_HARRIS);
 
 
 	for (int i = 0; i < cornersBot.size(); i++)
@@ -260,7 +265,7 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 	}
 
 	// Connect corners to vertical lines
-	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop, int(RES * ratio));
+	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop);
 
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
@@ -305,10 +310,10 @@ bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop)
 {
-	float lengthMax = LINE_MAX * height;
-	float lengthMin = LINE_MIN * height;
+	/*float lengthMax = LINE_MAX * height;
+	float lengthMin = LINE_MIN * height;*/
 
 	vector<vector<Point2f>> lines;
 
@@ -369,6 +374,8 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			// maybe store them for reusage
 			// Check if length difference of lines is close
 			float length1 = getDistance(lines[i][0], lines[i][1]);
+			// TODO save the values, OR length1 in first for loop
+
 			float length2 = getDistance(lines[j][0], lines[j][1]);
 			float lengthDiff = abs(length1 - length2);
 			float lengthAvg = (length1 + length2) / 2;
@@ -377,7 +384,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			{
 				continue;
 			}
-
+			
 			// Check if top distance is in range of the given aspect ratio
 			float lengthMin = lengthAvg * ASPECT_RATIO_MIN;
 			float lengthMax = lengthAvg * ASPECT_RATIO_MAX;
@@ -488,7 +495,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point inputPoint, Mat gray)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point2f inputPoint, Mat gray)
 {
 	cout << candidates.size() << "size" << endl;
 	for (int i = 0; i < candidates.size(); i++)
