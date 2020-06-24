@@ -164,7 +164,7 @@ int main(int argc, char** argv)
 			if (frame.empty()) break;
 
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
-			resize(frame, frame, frame.size() / 4);
+			resize(frame, frame, frame.size() / 2);
 
 
 			frame.copyTo(globalImg);
