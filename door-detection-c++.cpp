@@ -368,13 +368,8 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	Mat image;
 	input.copyTo(image);
 
-	// Scale image down
-	/*int width = image.size().width;
+	int width = image.size().width;
 	int height = image.size().height;
-	float ratio = float(height) / float(width);
-	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);*/
-	// NOTE: different interpolation methods can be used
-	float ratio = float(image.size().height) / float(image.size().width);
 
 	// Convert to grayscale
 	Mat gray;
@@ -406,7 +401,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	}
 
 	// Connect corners to vertical lines
-	vector<vector<Point2f>> lines = cornersToVertLines(points, depths, int(RES * ratio));
+	vector<vector<Point2f>> lines = cornersToVertLines(points, depths, height);
 
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
@@ -620,7 +615,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 	float result = 0.0;
 	float bottomBonus = 0.0;
 
-	for (int i = 0; i < rect.size(); i++)
+	for (int i = 0; i < rect.size() - 1; i++)
 	{
 		// Next point to connect
 		int j = (i + 1) % 4;
@@ -635,24 +630,16 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 		float lineLength = getDistance(rect[i], rect[j]);
 		float fillRatio = min(float(1.0), countNonZero(roi) / lineLength);
 
-		if (i < 3)
+		if (fillRatio < LINE_THRESH)
 		{
-			if (fillRatio < LINE_THRESH)
-			{
-				return 0.0;
-			}
+			return 0.0;
+		}
 
-			result += fillRatio;
-		}
-		else
-		{
-			// Bottom line
-			bottomBonus = fillRatio * BOT_LINE_BONUS;
-		}
+		result += fillRatio;
 	}
 
 	// Get average fillRatio for all lines but bottom line
-	result = (result / 3) + bottomBonus;
+	result = result / 3;
 	cout << result << endl;
 
 	return result;
