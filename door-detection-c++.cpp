@@ -14,7 +14,6 @@ using namespace cv;
 using namespace std;
 
 // Declare all used constants
-const int RES = 360;
 const int MIN_FRAME_COUNT = 45;
 
 const float CONTRAST = 1.2;
@@ -39,8 +38,8 @@ const bool CORNERS_HARRIS = false;
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
-const float LINE_ANGLE_MIN = 0.825; // RAD from  0.875
-const float POINT_DEPTH_CLOSENESS = 0.3;
+const float LINE_ANGLE_MIN = 0.85; // RAD from  0.875
+const float POINT_DEPTH_CLOSENESS = 0.25;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD from 0.175
@@ -51,13 +50,12 @@ const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0; //from 10.0
 const float RECTANGLE_OPPOSITE_THRESH = 10.0; //from 10.0
-const float LINE_DEPTH_CLOSENESS = 0.3;
+const float LINE_DEPTH_CLOSENESS = 0.25;
 
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.75; // from 0.85
-const float LINE_THRESH = 0.5;
+const float LINE_THRESH = 0.65;
 const int LINE_WIDTH = 4;
-const float BOT_LINE_BONUS = 0.25;
 
 // Selection of best candidate constants
 const float UPVOTE_FACTOR = 1.2;
@@ -67,8 +65,8 @@ const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
 bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<Point2f> corners, vector<float> depths, float depthRange, int height);
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, float depthRange);
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, float depthRange, int height);
+vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
 
@@ -405,10 +403,11 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
-	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, points, depths, range, height);
+	vector<float> lineLengths = {};
+	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, range, height);
 
 	// Group corners based on found lines to rectangles
-	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines, lineDepths, range);
+	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines, lineDepths, lineLengths, range);
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
@@ -452,7 +451,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<Point2f> corners, vector<float> depths, float depthRange, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, float depthRange, int height)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -500,18 +499,19 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<Poi
 			}
 			lines.push_back(line);
 			lineDepths.push_back((iDepth + jDepth) / 2);
+			lineLengths.push_back(distance);
 		}
 	}
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << "cornersToVertLines " << duration << endl;
+	cout << "cornersToVertLines " << duration << "ms" << endl;
 
 	return lines;
 }
 
 // Group rectangles that represent door candidates out of vertical lines
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, float depthRange)
+vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -536,13 +536,9 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 				continue;
 			}
 
-			// NOTE: both of these values were calculated before,
-			// maybe store them for reusage
 			// Check if length difference of lines is close
-			float length1 = getDistance(lines[i][0], lines[i][1]);
-			float length2 = getDistance(lines[j][0], lines[j][1]);
-			float lengthDiff = abs(length1 - length2);
-			float lengthAvg = (length1 + length2) / 2;
+			float lengthDiff = abs(lineLengths[i] - lineLengths[j]);
+			float lengthAvg = (lineLengths[i] + lineLengths[j]) / 2;
 
 			if (lengthDiff > (lengthAvg * LENGTH_DIFF_MAX))
 			{
@@ -567,8 +563,6 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 				continue;
 			}
 
-			// NOTE: these tests might not be necessary if corner angle test exists
-			// Test orientation of top horizontal line
 			float orientationTop = getOrientation(lines[i][0], lines[j][0]);
 			if (orientationTop > ANGLE_MAX)
 			{
@@ -614,7 +608,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << "vertLinesToRectangles " << duration << endl;
+	cout << "vertLinesToRectangles " << duration << "ms" << endl;
 
 	return rects;
 }
