@@ -14,6 +14,7 @@ using namespace std;
 
 // Declare all used constants
 const int RES = 360;
+const int MIN_FRAME_COUNT = 45;
 
 const float CONTRAST = 1.2;
 
@@ -142,7 +143,6 @@ int main(int argc, char** argv)
 		// frames get loaded rotated -> flip width and height
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
-		cout << frameWidth;
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
@@ -255,11 +255,11 @@ int main(int argc, char** argv)
 			float ratio = min / max;
 			float avg = allDists / distances.size();*/
 
-			float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
+			/*float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
 			float max = *max_element(longTimeDistances.begin(), longTimeDistances.end());
 			float range = max - min;
 			float ratio = min / max;
-			float avg = allDists / longTimeDistances.size();
+			float avg = allDists / longTimeDistances.size();*/
 
 			/*cout << endl;
 			cout << "frame: " << frameCount << endl;
@@ -289,15 +289,15 @@ int main(int argc, char** argv)
 			prevFrameGray = frameGray.clone();
 			p0 = good_new;
 
-			auto t2 = chrono::steady_clock::now();
-			auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-			cout << duration << endl;
+			//auto t2 = chrono::steady_clock::now();
+			//auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+			//cout << duration << endl;
 
 			//waitKey(0);
 			// DETECT A DOOR NOW
-			if ((char)waitKey(1) == 49)
+			if (frameCount > MIN_FRAME_COUNT)
 			{
-				auto size = frame.size();
+				//auto size = frame.size();
 				vector<Point2f> result = {};
 
 				bool success = detect(frame, good_new, longTimeDistances, result);
@@ -322,7 +322,6 @@ int main(int argc, char** argv)
 				imshow("Display window", frame);
 
 				cout << endl << "result " << result.size() << endl;
-				(char)waitKey(0);
 			}
 
 			//auto size = frame.size();
@@ -393,20 +392,6 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
 	imshow("Edges window", edges);
 
-	// Generate mask and find corners
-	/*vector<Point2f> corners;
-	Mat mask;
-
-	mask = Mat::zeros(image.size(), CV_8U);
-	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
-	mask(rect) = 1;
-
-	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);*/
-
-	/*for (int i = 0; i < corners.size(); i++)
-	{
-		circle(blurred, corners[i], 3, Scalar(0, 0, 255), -1);
-	}*/
 
 	float min = *min_element(depths.begin(), depths.end());
 	float max = *max_element(depths.begin(), depths.end());
