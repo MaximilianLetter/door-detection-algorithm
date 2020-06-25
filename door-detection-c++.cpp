@@ -22,8 +22,9 @@ const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
 
 // Canny constants
-const int CANNY_LOWER = 50;
-const int CANNY_UPPER = 200;
+// NOTE: The lower threshold is lower than most canny auto threshold, but necessary to catch some door edges
+const double CANNY_LOWER = 0.35;
+const double CANNY_UPPER = 0.66;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
@@ -52,8 +53,8 @@ const float RECTANGLE_OPPOSITE_THRESH = 10.0; //from 10.0
 const float LINE_DEPTH_CLOSENESS = 0.4;
 
 // Comparison of rectangles to edges constants
-const float RECT_THRESH = 0.75; // from 0.85
-const float LINE_THRESH = 0.5;
+const float RECT_THRESH = 0.8; // from 0.85
+const float LINE_THRESH = 0.65;
 const int LINE_WIDTH = 8;
 
 // Selection of best candidate constants
@@ -72,6 +73,7 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
+double getMedian(Mat channel);
 
 int main(int argc, char** argv)
 {
@@ -288,8 +290,6 @@ int main(int argc, char** argv)
 				}
 
 				imshow("Display window", frame);
-
-				cout << endl << "result " << result.size() << endl;
 			}
 
 			//auto size = frame.size();
@@ -352,8 +352,18 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 	// Generate edges
 	Mat edges;
-	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
+	double median = getMedian(blurred);
+
+	// Very dark images can go to values like 9, resulting in extremely noisy images
+	median = max((double)30, median);
+	cout << "MEDIAN " << median << endl;
+
+	double lowerThresh = max((double)0, (CANNY_LOWER * median));
+	double higherThresh = min((double)255, (CANNY_UPPER * median));
+
+	Canny(blurred, edges, lowerThresh, higherThresh);
 	imshow("Edges window", edges);
+
 
 	Mat houghMat;
 	houghMat = Mat::zeros(edges.size(), edges.type());
@@ -685,7 +695,6 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 					if (abs(180.0 - (angles[k] + angles[kOpp]) > RECTANGLE_OPPOSITE_THRESH))
 					{
 						rectangular = false;
-						cout << "ANGLE TEST FAILED" << endl;
 						break;
 					}
 				}
@@ -736,7 +745,6 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 
 	// Get average fillRatio for all lines but bottom line
 	result = result / 3;
-	cout << result << endl;
 
 	return result;
 }
@@ -794,12 +802,15 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 			}
 		}
 
-		//cout << scores[i];
+		cout << scores[i] << endl;
+
 	}
 
 	int index = max_element(scores.begin(), scores.end()) - scores.begin();
 	//cout << " winner " << index;
 	vector<Point2f> door = candidates[index];
+
+	//waitKey(0);
 
 	return door;
 }
@@ -833,4 +844,30 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
 	angle = abs(acos(angle) * 180/M_PI);
 
 	return angle;
+}
+
+// Calculates the median value of a single channel
+// based on https://github.com/arnaudgelas/OpenCVExamples/blob/master/cvMat/Statistics/Median/Median.cpp
+double getMedian(cv::Mat channel)
+{
+	double m = (channel.rows * channel.cols) / 2;
+	int bin = 0;
+	double med = -1.0;
+
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+	bool uniform = true;
+	bool accumulate = false;
+	cv::Mat hist;
+	cv::calcHist(&channel, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange, uniform, accumulate);
+
+	for (int i = 0; i < histSize && med < 0.0; ++i)
+	{
+		bin += cvRound(hist.at< float >(i));
+		if (bin > m && med < 0.0)
+			med = i;
+	}
+
+	return med;
 }
