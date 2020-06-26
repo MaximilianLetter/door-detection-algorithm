@@ -17,9 +17,9 @@ using namespace std;
 
 // State of optical flow keypoints
 // unstable: not enough points for detection
-// stabelizing: not enough frames to be stable
+// WATCHING: not enough frames to be stable
 // stable: enough points and enough frames lived by
-enum State { UNSTABLE, STABELIZING, STABLE };
+enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 40;
 const int MIN_FRAME_COUNT = 60;
 const int DETECTION_FAILED_RESET_COUNT = 7;
@@ -86,7 +86,7 @@ const float GOAL_ANGLES = 90;
 const float GOAL_ANGLES_DIFF_RANGE = 20;
 
 // Declare all used functions
-bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
+bool detect(Mat& grayImage, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
 vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
@@ -134,39 +134,29 @@ int main(int argc, char** argv)
 		// frames get loaded rotated -> flip width and height
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
-		//int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
-		//VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
-		vector<Point> topPolygon = {
-			Point(0, 0),
-			Point(frameWidth, 0),
-			Point(frameWidth, frameHeight * 0.4),
-			Point(0, frameHeight * 0.4)
-		};
+		// Used for resetting feature points if none top is detected
 		Rect topRect = Rect(0, 0, frameWidth, frameHeight * 0.4);
 
 		// Start Optical Flow setup
 		vector<Point2f> p0, p1;
-		Mat prevFrame, prevFrameGray;
-		//cap >> prevFrame;
+
+		Mat frame, frameGray;
+		Mat prevFrameGray;
+
+		// Distances over multiple frames
+		vector<float> longTimeDistances;
 
 		// Results in 360p by 0.5 factor (if it is HD 720p)
+		// Results in 360p by 0.75 factor (if it is 480p)
 		//Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
 		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.75, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.75);
-		cout << smallSize << endl;
 
-		//resize(prevFrame, prevFrame, smallSize);
-		//rotate(prevFrame, prevFrame, ROTATE_90_CLOCKWISE);
-		//cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
-
-		//// Find trackables
-		//goodFeaturesToTrack(prevFrameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
-
-		// Mask for some reason 
-		//Mat drawMask = Mat::zeros(prevFrame.size(), prevFrame.type());
-		vector<float> longTimeDistances;
+		// For video capturing only
+		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+		VideoWriter video("./results/output.avi", codec, 25.0, Size(smallSize.height, smallSize.width));
 		
-		// Start in unstable mode
+		// State properties that are modified over time
 		int state = State::UNSTABLE;
 		int frameCount = 0;
 		int failedAttemptCount = 0;
@@ -175,7 +165,6 @@ int main(int argc, char** argv)
 		{
 			auto t1 = chrono::steady_clock::now();
 
-			Mat frame, frameGray;
 			cap >> frame;
 
 			if (frame.empty()) break;
@@ -186,36 +175,35 @@ int main(int argc, char** argv)
 
 			if (state == State::UNSTABLE)
 			{
-				cout << "FIRST STATE -> UNSTABLE" << endl;
 				goodFeaturesToTrack(frameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
 				frameCount = 0;
 				longTimeDistances = {};
 
 				int topPoints = 0;
-				for (int i = 0; i < p0.size(); i++)
-				{
-					//pointPolygonTest(topPolygon, p0, false);
-					if (topRect.contains(p0[i]))
-					{
-						topPoints++;
-						if (topPoints > 1) break;
-					};
-				}
 
-				if (p0.size() > MIN_POINTS_COUNT && topPoints > 1)
+				if (p0.size() > MIN_POINTS_COUNT)
 				{
-					prevFrameGray = frameGray.clone();
-					state = State::STABELIZING;
+					for (int i = 0; i < p0.size(); i++)
+					{
+						if (topRect.contains(p0[i]))
+						{
+							topPoints++;
+
+							if (topPoints > 1)
+							{
+								prevFrameGray = frameGray.clone();
+								state = State::WATCHING;
+								break;
+							}
+						};
+					}
 				}
 			}
-			else {
-				//cout << "NEXT FRAME -> STABELIZING OR STABLE" << endl;
-				/*if (state == State::STABELIZING || state == State::STABLE)
-				{
-
-				}*/
+			else
+			{
+				// State is now STABLE or WATCHING
 				frameCount++;
-				cout << frameCount << endl;
+				cout << "Frames in row: " << frameCount << endl;
 
 				if (frameCount > MIN_FRAME_COUNT)
 				{
@@ -227,29 +215,22 @@ int main(int argc, char** argv)
 				vector<float> err;
 				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
 				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
-				vector<Point2f> good_new;
+				vector<Point2f> goodMatches;
 
 				vector<bool> pointControl;
 				bool pointLost = false;
-
-				//Point2f centroid = Point2f();
 
 				vector<float> distances;
 				for (uint i = 0; i < p0.size(); i++)
 				{
 					// Select good points
 					if (status[i] == 1) {
-						good_new.push_back(p1[i]);
-						//centroid += p1[i];
+						goodMatches.push_back(p1[i]);
 
 						float dist = getDistance(p0[i], p1[i]);
-						//cout << dist;
+
 						distances.push_back(dist);
 						pointControl.push_back(true);
-
-						// draw the tracks
-						//line(drawMask, p1[i], p0[i], Scalar(255, 255, 255), 2);
-						/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
 					}
 					else
 					{
@@ -258,30 +239,23 @@ int main(int argc, char** argv)
 					}
 				}
 
-				/*centroid = centroid / (int)good_new.size();
-				circle(frame, centroid, 5, Scalar(0, 0, 255), FILLED);*/
-
-				if (good_new.size() < MIN_POINTS_COUNT)
+				// If too many points have been lost, return to UNSTABLE state
+				if (goodMatches.size() < MIN_POINTS_COUNT)
 				{
 					state = State::UNSTABLE;
 					continue;
 				}
 
-
-				float allDists = 0;
-				// first frame ~
+				// Initialization if longTimeDistances starts or was cleared
 				if (longTimeDistances.size() == 0)
 				{
 					longTimeDistances = distances;
 				}
 				else
 				{
+					// Since points were lost since the last frame, distances need to be updated
 					if (pointLost)
 					{
-						// override longTimeDistances
-						cout << endl << "POINT_LOST" << endl;
-
-						// TODO some points slide around and mess up the result -> TODO
 						vector<float> updDistances;
 						for (uint i = 0; i < longTimeDistances.size(); i++)
 						{
@@ -295,126 +269,52 @@ int main(int argc, char** argv)
 						longTimeDistances = updDistances;
 					}
 
+					// Add calculated distances of this frame to the longTimeDistances
 					for (uint i = 0; i < distances.size(); i++)
 					{
 						longTimeDistances[i] += distances[i];
-						allDists += longTimeDistances[i];
 					}
 				}
 
-				/*float min = *min_element(distances.begin(), distances.end());
-				float max = *max_element(distances.begin(), distances.end());
-				float range = max - min;
-				float ratio = min / max;
-				float avg = allDists / distances.size();*/
-
-				/*float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
-				float max = *max_element(longTimeDistances.begin(), longTimeDistances.end());
-				float range = max - min;
-				float ratio = min / max;
-				float avg = allDists / longTimeDistances.size();*/
-
-				/*cout << endl;
-				cout << "frame: " << frameCount << endl;
-				cout << "amountPoints: " << good_new.size() << endl;
-				cout << "min: " << min << endl;
-				cout << "max: " << max << endl;
-				cout << "range: " << range << endl;
-				cout << "ratio: " << ratio << endl;
-				cout << "average: " << avg << endl;
-				cout <<  "------------" << endl;*/
-
-				// Draw a result
-				/*for (uint i = 0; i < good_new.size(); i++)
-				{
-					float depthToColor = 255 * ((longTimeDistances[i] - min) / range);
-					Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
-
-					circle(frame, good_new[i], 5, col, -1);
-				}*/
-
-				Mat img;
-				//add(frame, mask, img);
-				img = frame;
-				imshow("Frame", img);
-				//imshow("Mask", drawMask);
-
 				prevFrameGray = frameGray.clone();
-				p0 = good_new;
+				p0 = goodMatches;
 
-				//auto t2 = chrono::steady_clock::now();
-				//auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-				//cout << duration << endl;
-
-				//waitKey(0);
-				// DETECT A DOOR NOW
+				// Finally a door can be detected
 				if (state == State::STABLE)
 				{
-					//auto size = frame.size();
 					vector<Point2f> result = {};
 
-					bool success = detect(frame, good_new, longTimeDistances, result);
-
-					//resize(frame, frame, size);
-
+					bool success = detect(frameGray, goodMatches, longTimeDistances, result);
 
 					if (success)
 					{
 						failedAttemptCount = 0;
-						// Scale up to match input size (6x for FHD, 4x for HD)
-						/*for (int i = 0; i < result.size(); i++)
-						{
-							result[i] = result[i] * 4;
-						}*/
 
 						line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
 						line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
 						line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
 						line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
 					}
-					else {
+					else
+					{
 						failedAttemptCount++;
+						
+						// Reset to start if this detection isnt going anywhere
 						if (failedAttemptCount > DETECTION_FAILED_RESET_COUNT)
 						{
-							cout << "RESET" << endl;
 							state = State::UNSTABLE;
 						}
 					}
-
-					imshow("Display window", frame);
 				}
-
-				//auto size = frame.size();
-				//vector<Point2f> result = {};
-
-				//bool success = detect(frame, result);
-
-				////resize(frame, frame, size);
-
-				//if (result.size() > 0)
-				//{
-				//	// Scale up to match input size (6x for FHD, 4x for HD)
-				//	for (int i = 0; i < result.size(); i++)
-				//	{
-				//		result[i] = result[i] * 4;
-				//	}
-
-				//	line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-				//	line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-				//	line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-				//	line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-				//}
-
-				//resize(frame, frame, frame.size() / 2);
-				//imshow("Display window", frame);
-				//video.write(frame);
-
 			}
+			imshow("Display window", frame);
+			video.write(frame);
+
 			if ((char)waitKey(1) == 27) break;
 		}
 
 		cap.release();
-		//video.release();
+		video.release();
 	}
 	
 	cv::destroyAllWindows();
@@ -422,26 +322,19 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point2f>& result)
+bool detect(Mat& inputGray, vector<Point2f>points, vector<float>pointDepths, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
-	Mat image;
-	input.copyTo(image);
-
-	int width = image.size().width;
-	int height = image.size().height;
-
-	// Convert to grayscale
-	Mat gray;
-	cvtColor(image, gray, COLOR_BGR2GRAY);
+	Mat imgGray;
+	inputGray.copyTo(imgGray);
 
 	// Increase contrast
-	//gray.convertTo(gray, -1, CONTRAST, 0);
+	imgGray.convertTo(imgGray, -1, CONTRAST, 0);
 
 	// Blur the image
 	Mat blurred;
-	GaussianBlur(gray, blurred, BLUR_KERNEL, BLUR_SIGMA);
+	GaussianBlur(imgGray, blurred, BLUR_KERNEL, BLUR_SIGMA);
 
 	// Generate edges
 	Mat edges;
@@ -449,7 +342,6 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 	// Very dark images can go to values like 9, resulting in extremely noisy images
 	median = max((double)30, median);
-	//cout << "MEDIAN " << median << endl;
 
 	double lowerThresh = max((double)0, (CANNY_LOWER * median));
 	double higherThresh = min((double)255, (CANNY_UPPER * median));
@@ -458,21 +350,15 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	imshow("Edges window", edges);
 
 	// Generate hough lines
-	Mat houghMat;
-	houghMat = Mat::zeros(edges.size(), edges.type());
-
-	vector<Vec2f> houghLines; // will hold the results of the detection
-	int thresh = (int)(width * 0.33);
-	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0); // runs the actual detection
-	//cout << "houghLines amount: " << houghLines.size() << endl;
-	//cout << "corners amount: " << points.size() << endl;
-
+	vector<Vec2f> houghLines;
+	int thresh = (int)(imgGray.size().height * 0.25);
+	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0);
 	vector<Vec2f> filteredHoughLines;
 	vector<int> filteredHoughLinesWidth;
 
+	// Go through lines and merge them into bigger lines
 	for (size_t h = 0; h < houghLines.size(); h++)
 	{
-		//cout << "LINE: " << houghLines[h] << endl;
 		bool lineDone = false;
 
 		for (int f = 0; f < filteredHoughLines.size(); f++)
@@ -480,76 +366,34 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 			Vec2f diff = houghLines[h] - filteredHoughLines[f];
 			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
 			{
-				//cout << "combined " << houghLines[h] << " ---- " << filteredHoughLines[f] << endl;
 				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
 				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
 				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
-				lineDone = true;
-				break;
+				continue;
 			}
 		}
-
-		if (lineDone) continue;
 
 		filteredHoughLines.push_back(houghLines[h]);
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
-	//cout << "filtered houghlines amount: " << filteredHoughLines.size() << endl;
 
-	//for (int h = 0; h < filteredHoughLines.size(); h++)
-	//{
-	//	float rho = filteredHoughLines[h][0], theta = filteredHoughLines[h][1];
-
-	//	Point pt1, pt2;
-	//	double a = cos(theta), b = sin(theta);
-	//	double x0 = a * rho, y0 = b * rho;
-	//	pt1.x = cvRound(x0 + 1000 * (-b));
-	//	pt1.y = cvRound(y0 + 1000 * (a));
-	//	pt2.x = cvRound(x0 - 1000 * (-b));
-	//	pt2.y = cvRound(y0 - 1000 * (a));
-
-	//	float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
-	//	//cout << "angle: " << angle;
-	//	if (angle < 80 || angle > 100)
-	//	{
-	//		continue;
-	//	}
-
-	//	line(houghMat, pt1, pt2, 255, filteredHoughLinesWidth[h], LINE_AA);
-	//	imshow("testLines", houghMat);
-	//	waitKey(0);
-
-	//}
-
-
-
-	float min = *min_element(depths.begin(), depths.end());
-	float max = *max_element(depths.begin(), depths.end());
+	float min = *min_element(pointDepths.begin(), pointDepths.end());
+	float max = *max_element(pointDepths.begin(), pointDepths.end());
 	float depthRange = max - min;
 
 	// this is all just for testing
-	for (uint i = 0; i < points.size(); i++)
+	/*for (uint i = 0; i < points.size(); i++)
 	{
-		float depthToColor = 255 * ((depths[i] - min) / depthRange);
+		float depthToColor = 255 * ((pointDepths[i] - min) / depthRange);
 		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
 		circle(blurred, points[i], 5, col, -1);
-	}
-
-
-
-
+	}*/
 
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
 	vector<float> lineLengths = {};
-	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, filteredHoughLines, filteredHoughLinesWidth, depthRange, image.size());
-
-	for (int i = 0; i < lines.size(); i++)
-	{
-		line(image, lines[i][0], lines[i][1], Scalar(255, 255, 0), 2);
-	}
-	//imshow("Lines", image);
+	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, pointDepths, filteredHoughLines, filteredHoughLinesWidth, depthRange, imgGray.size());
 
 	// Group corners based on found lines to rectangles
 	vector<float> rectDepthDiffs = {};
@@ -573,17 +417,14 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	}
 	rectDepthDiffs = updDepthDiffs;
 
-	//cout << endl << "candidates " << candidates.size() << endl;
-
-	for (int i = 0; i < candidates.size(); i++)
-	{
-		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
-	}
-	imshow("Dev window", blurred);
+	//for (int i = 0; i < candidates.size(); i++)
+	//{
+	//	line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+	//}
+	//imshow("Dev window", blurred);
 
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
@@ -593,15 +434,14 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 		auto t2 = chrono::steady_clock::now();
 		auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-		cout << "OVERALL DURATION: " << duration << endl;
+		cout << "Detection DURATION: " << duration << endl;
 
 		return true;
 	}
-	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << "OVERALL DURATION: " << duration << endl;
+	cout << "Detection DURATION: " << duration << endl;
 
 	return false;
 }
