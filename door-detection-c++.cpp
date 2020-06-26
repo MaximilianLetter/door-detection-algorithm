@@ -14,7 +14,15 @@ using namespace cv;
 using namespace std;
 
 // Declare all used constants
+
+// State of optical flow keypoints
+// unstable: not enough points for detection
+// stabelizing: not enough frames to be stable
+// stable: enough points and enough frames lived by
+enum State { UNSTABLE, STABELIZING, STABLE };
+const int MIN_POINTS_COUNT = 40;
 const int MIN_FRAME_COUNT = 60;
+const int DETECTION_FAILED_RESET_COUNT = 7;
 
 const float CONTRAST = 1.2;
 
@@ -126,35 +134,46 @@ int main(int argc, char** argv)
 		// frames get loaded rotated -> flip width and height
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
-		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
-		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
+		//int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+		//VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
+
+		vector<Point> topPolygon = {
+			Point(0, 0),
+			Point(frameWidth, 0),
+			Point(frameWidth, frameHeight * 0.4),
+			Point(0, frameHeight * 0.4)
+		};
+		Rect topRect = Rect(0, 0, frameWidth, frameHeight * 0.4);
 
 		// Start Optical Flow setup
 		vector<Point2f> p0, p1;
 		Mat prevFrame, prevFrameGray;
-		cap >> prevFrame;
+		//cap >> prevFrame;
 
-		// Results in 360p by 0.5 factor
-		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
+		// Results in 360p by 0.5 factor (if it is HD 720p)
+		//Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
+		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.75, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.75);
+		cout << smallSize << endl;
 
-		resize(prevFrame, prevFrame, smallSize);
-		rotate(prevFrame, prevFrame, ROTATE_90_CLOCKWISE);
-		cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
+		//resize(prevFrame, prevFrame, smallSize);
+		//rotate(prevFrame, prevFrame, ROTATE_90_CLOCKWISE);
+		//cvtColor(prevFrame, prevFrameGray, COLOR_BGR2GRAY);
 
-		// Find trackables
-		goodFeaturesToTrack(prevFrameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
+		//// Find trackables
+		//goodFeaturesToTrack(prevFrameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
 
 		// Mask for some reason 
-		Mat drawMask = Mat::zeros(prevFrame.size(), prevFrame.type());
+		//Mat drawMask = Mat::zeros(prevFrame.size(), prevFrame.type());
 		vector<float> longTimeDistances;
 		
+		// Start in unstable mode
+		int state = State::UNSTABLE;
 		int frameCount = 0;
+		int failedAttemptCount = 0;
 
 		while (1)
 		{
 			auto t1 = chrono::steady_clock::now();
-
-			frameCount++;
 
 			Mat frame, frameGray;
 			cap >> frame;
@@ -165,177 +184,237 @@ int main(int argc, char** argv)
 			rotate(frame, frame, ROTATE_90_CLOCKWISE);
 			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
 
-			// Calculate optical flow
-			vector<uchar> status;
-			vector<float> err;
-			TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
-			calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
-			vector<Point2f> good_new;
-
-			vector<bool> pointControl;
-			bool pointLost = false;
-
-			vector<float> distances;
-			for (uint i = 0; i < p0.size(); i++)
+			if (state == State::UNSTABLE)
 			{
-				// Select good points
-				if (status[i] == 1) {
-					good_new.push_back(p1[i]);
+				cout << "FIRST STATE -> UNSTABLE" << endl;
+				goodFeaturesToTrack(frameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
+				frameCount = 0;
+				longTimeDistances = {};
 
-					float dist = getDistance(p0[i], p1[i]);
-					//cout << dist;
-					distances.push_back(dist);
-					pointControl.push_back(true);
+				int topPoints = 0;
+				for (int i = 0; i < p0.size(); i++)
+				{
+					//pointPolygonTest(topPolygon, p0, false);
+					if (topRect.contains(p0[i]))
+					{
+						topPoints++;
+						if (topPoints > 1) break;
+					};
+				}
 
-					// draw the tracks
-					line(drawMask, p1[i], p0[i], Scalar(255, 255, 255), 2);
-					/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
+				if (p0.size() > MIN_POINTS_COUNT && topPoints > 1)
+				{
+					prevFrameGray = frameGray.clone();
+					state = State::STABELIZING;
+				}
+			}
+			else {
+				//cout << "NEXT FRAME -> STABELIZING OR STABLE" << endl;
+				/*if (state == State::STABELIZING || state == State::STABLE)
+				{
+
+				}*/
+				frameCount++;
+				cout << frameCount << endl;
+
+				if (frameCount > MIN_FRAME_COUNT)
+				{
+					state = State::STABLE;
+				}
+
+				// Calculate optical flow
+				vector<uchar> status;
+				vector<float> err;
+				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
+				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
+				vector<Point2f> good_new;
+
+				vector<bool> pointControl;
+				bool pointLost = false;
+
+				//Point2f centroid = Point2f();
+
+				vector<float> distances;
+				for (uint i = 0; i < p0.size(); i++)
+				{
+					// Select good points
+					if (status[i] == 1) {
+						good_new.push_back(p1[i]);
+						//centroid += p1[i];
+
+						float dist = getDistance(p0[i], p1[i]);
+						//cout << dist;
+						distances.push_back(dist);
+						pointControl.push_back(true);
+
+						// draw the tracks
+						//line(drawMask, p1[i], p0[i], Scalar(255, 255, 255), 2);
+						/*circle(frame, p1[i], 5, Scalar(0, 0, 255), -1);*/
+					}
+					else
+					{
+						pointLost = true;
+						pointControl.push_back(false);
+					}
+				}
+
+				/*centroid = centroid / (int)good_new.size();
+				circle(frame, centroid, 5, Scalar(0, 0, 255), FILLED);*/
+
+				if (good_new.size() < MIN_POINTS_COUNT)
+				{
+					state = State::UNSTABLE;
+					continue;
+				}
+
+
+				float allDists = 0;
+				// first frame ~
+				if (longTimeDistances.size() == 0)
+				{
+					longTimeDistances = distances;
 				}
 				else
 				{
-					pointLost = true;
-					pointControl.push_back(false);
-				}
-			}
-
-			
-			float allDists = 0;
-			// first frame ~
-			if (longTimeDistances.size() == 0)
-			{
-				longTimeDistances = distances;
-			}
-			else
-			{
-				if (pointLost)
-				{
-					// override longTimeDistances
-					cout << endl << "OVERRIDE" << endl;
-
-					// TODO some points slide around and mess up the result -> TODO
-					vector<float> updDistances;
-					for (uint i = 0; i < longTimeDistances.size(); i++)
+					if (pointLost)
 					{
-						// If point i was a good point
-						if (pointControl[i])
+						// override longTimeDistances
+						cout << endl << "POINT_LOST" << endl;
+
+						// TODO some points slide around and mess up the result -> TODO
+						vector<float> updDistances;
+						for (uint i = 0; i < longTimeDistances.size(); i++)
 						{
-							updDistances.push_back(longTimeDistances[i]);
+							// If point i was a good point
+							if (pointControl[i])
+							{
+								updDistances.push_back(longTimeDistances[i]);
+							}
+						}
+
+						longTimeDistances = updDistances;
+					}
+
+					for (uint i = 0; i < distances.size(); i++)
+					{
+						longTimeDistances[i] += distances[i];
+						allDists += longTimeDistances[i];
+					}
+				}
+
+				/*float min = *min_element(distances.begin(), distances.end());
+				float max = *max_element(distances.begin(), distances.end());
+				float range = max - min;
+				float ratio = min / max;
+				float avg = allDists / distances.size();*/
+
+				/*float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
+				float max = *max_element(longTimeDistances.begin(), longTimeDistances.end());
+				float range = max - min;
+				float ratio = min / max;
+				float avg = allDists / longTimeDistances.size();*/
+
+				/*cout << endl;
+				cout << "frame: " << frameCount << endl;
+				cout << "amountPoints: " << good_new.size() << endl;
+				cout << "min: " << min << endl;
+				cout << "max: " << max << endl;
+				cout << "range: " << range << endl;
+				cout << "ratio: " << ratio << endl;
+				cout << "average: " << avg << endl;
+				cout <<  "------------" << endl;*/
+
+				// Draw a result
+				/*for (uint i = 0; i < good_new.size(); i++)
+				{
+					float depthToColor = 255 * ((longTimeDistances[i] - min) / range);
+					Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
+
+					circle(frame, good_new[i], 5, col, -1);
+				}*/
+
+				Mat img;
+				//add(frame, mask, img);
+				img = frame;
+				imshow("Frame", img);
+				//imshow("Mask", drawMask);
+
+				prevFrameGray = frameGray.clone();
+				p0 = good_new;
+
+				//auto t2 = chrono::steady_clock::now();
+				//auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+				//cout << duration << endl;
+
+				//waitKey(0);
+				// DETECT A DOOR NOW
+				if (state == State::STABLE)
+				{
+					//auto size = frame.size();
+					vector<Point2f> result = {};
+
+					bool success = detect(frame, good_new, longTimeDistances, result);
+
+					//resize(frame, frame, size);
+
+
+					if (success)
+					{
+						failedAttemptCount = 0;
+						// Scale up to match input size (6x for FHD, 4x for HD)
+						/*for (int i = 0; i < result.size(); i++)
+						{
+							result[i] = result[i] * 4;
+						}*/
+
+						line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
+						line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
+						line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
+						line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
+					}
+					else {
+						failedAttemptCount++;
+						if (failedAttemptCount > DETECTION_FAILED_RESET_COUNT)
+						{
+							cout << "RESET" << endl;
+							state = State::UNSTABLE;
 						}
 					}
 
-					longTimeDistances = updDistances;
+					imshow("Display window", frame);
 				}
 
-				for (uint i = 0; i < distances.size(); i++)
-				{
-					longTimeDistances[i] += distances[i];
-					allDists += longTimeDistances[i];
-				}
-			}
-
-			/*float min = *min_element(distances.begin(), distances.end());
-			float max = *max_element(distances.begin(), distances.end());
-			float range = max - min;
-			float ratio = min / max;
-			float avg = allDists / distances.size();*/
-
-			/*float min = *min_element(longTimeDistances.begin(), longTimeDistances.end());
-			float max = *max_element(longTimeDistances.begin(), longTimeDistances.end());
-			float range = max - min;
-			float ratio = min / max;
-			float avg = allDists / longTimeDistances.size();*/
-
-			/*cout << endl;
-			cout << "frame: " << frameCount << endl;
-			cout << "amountPoints: " << good_new.size() << endl;
-			cout << "min: " << min << endl;
-			cout << "max: " << max << endl;
-			cout << "range: " << range << endl;
-			cout << "ratio: " << ratio << endl;
-			cout << "average: " << avg << endl;
-			cout <<  "------------" << endl;*/
-
-			// Draw a result
-			/*for (uint i = 0; i < good_new.size(); i++)
-			{
-				float depthToColor = 255 * ((longTimeDistances[i] - min) / range);
-				Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
-
-				circle(frame, good_new[i], 5, col, -1);
-			}*/
-
-			Mat img;
-			//add(frame, mask, img);
-			img = frame;
-			imshow("Frame", img);
-			//imshow("Mask", drawMask);
-
-			prevFrameGray = frameGray.clone();
-			p0 = good_new;
-
-			//auto t2 = chrono::steady_clock::now();
-			//auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-			//cout << duration << endl;
-
-			//waitKey(0);
-			// DETECT A DOOR NOW
-			if (frameCount > MIN_FRAME_COUNT)
-			{
 				//auto size = frame.size();
-				vector<Point2f> result = {};
+				//vector<Point2f> result = {};
 
-				bool success = detect(frame, good_new, longTimeDistances, result);
+				//bool success = detect(frame, result);
 
-				//resize(frame, frame, size);
+				////resize(frame, frame, size);
 
+				//if (result.size() > 0)
+				//{
+				//	// Scale up to match input size (6x for FHD, 4x for HD)
+				//	for (int i = 0; i < result.size(); i++)
+				//	{
+				//		result[i] = result[i] * 4;
+				//	}
 
-				if (result.size() > 0)
-				{
-					// Scale up to match input size (6x for FHD, 4x for HD)
-					/*for (int i = 0; i < result.size(); i++)
-					{
-						result[i] = result[i] * 4;
-					}*/
+				//	line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
+				//	line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
+				//	line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
+				//	line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
+				//}
 
-					line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-					line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-					line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-					line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-				}
+				//resize(frame, frame, frame.size() / 2);
+				//imshow("Display window", frame);
+				//video.write(frame);
 
-				imshow("Display window", frame);
 			}
-
-			//auto size = frame.size();
-			//vector<Point2f> result = {};
-
-			//bool success = detect(frame, result);
-
-			////resize(frame, frame, size);
-
-			//if (result.size() > 0)
-			//{
-			//	// Scale up to match input size (6x for FHD, 4x for HD)
-			//	for (int i = 0; i < result.size(); i++)
-			//	{
-			//		result[i] = result[i] * 4;
-			//	}
-
-			//	line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-			//	line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-			//	line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-			//	line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-			//}
-
-			//resize(frame, frame, frame.size() / 2);
-			//imshow("Display window", frame);
-			//video.write(frame);
-
 			if ((char)waitKey(1) == 27) break;
 		}
 
 		cap.release();
-		video.release();
+		//video.release();
 	}
 	
 	cv::destroyAllWindows();
@@ -370,7 +449,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 	// Very dark images can go to values like 9, resulting in extremely noisy images
 	median = max((double)30, median);
-	cout << "MEDIAN " << median << endl;
+	//cout << "MEDIAN " << median << endl;
 
 	double lowerThresh = max((double)0, (CANNY_LOWER * median));
 	double higherThresh = min((double)255, (CANNY_UPPER * median));
@@ -385,8 +464,8 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	vector<Vec2f> houghLines; // will hold the results of the detection
 	int thresh = (int)(width * 0.33);
 	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0); // runs the actual detection
-	cout << "houghLines amount: " << houghLines.size() << endl;
-	cout << "corners amount: " << points.size() << endl;
+	//cout << "houghLines amount: " << houghLines.size() << endl;
+	//cout << "corners amount: " << points.size() << endl;
 
 	vector<Vec2f> filteredHoughLines;
 	vector<int> filteredHoughLinesWidth;
@@ -401,7 +480,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 			Vec2f diff = houghLines[h] - filteredHoughLines[f];
 			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
 			{
-				cout << "combined " << houghLines[h] << " ---- " << filteredHoughLines[f] << endl;
+				//cout << "combined " << houghLines[h] << " ---- " << filteredHoughLines[f] << endl;
 				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
 				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
 				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
@@ -415,7 +494,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 		filteredHoughLines.push_back(houghLines[h]);
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
-	cout << "filtered houghlines amount: " << filteredHoughLines.size() << endl;
+	//cout << "filtered houghlines amount: " << filteredHoughLines.size() << endl;
 
 	//for (int h = 0; h < filteredHoughLines.size(); h++)
 	//{
@@ -494,7 +573,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	}
 	rectDepthDiffs = updDepthDiffs;
 
-	cout << endl << "candidates " << candidates.size() << endl;
+	//cout << endl << "candidates " << candidates.size() << endl;
 
 	for (int i = 0; i < candidates.size(); i++)
 	{
@@ -511,12 +590,18 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	{
 		vector<Point2f> door = selectBestCandidate(candidates, rectDepthDiffs, depthRange, scores);
 		result = door;
+
+		auto t2 = chrono::steady_clock::now();
+		auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+		cout << "OVERALL DURATION: " << duration << endl;
+
+		return true;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << duration << endl;
+	cout << "OVERALL DURATION: " << duration << endl;
 
 	return false;
 }
@@ -669,8 +754,8 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << "cornersToVertLines " << duration << "ms" << endl;
-	cout << "Number of Lines: " << lines.size() << endl;
+	//cout << "cornersToVertLines " << duration << "ms" << endl;
+	//cout << "Number of Lines: " << lines.size() << endl;
 
 	return lines;
 }
@@ -773,7 +858,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vec
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << "vertLinesToRectangles " << duration << "ms" << endl;
+	//cout << "vertLinesToRectangles " << duration << "ms" << endl;
 
 	return rects;
 }
@@ -815,7 +900,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 // Select the candidate by comparing their scores, score boni if special requirements are met
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores)
 {
-	cout << candidates.size() << "size" << endl;
+	//cout << candidates.size() << "size" << endl;
 
 	// These values have meaning for all candidates and need to be calculated once
 	// NOTE: this is the first version and is cinda crappy
@@ -872,7 +957,7 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		//	}
 		//}
 
-		cout << "BEGINNING SCORE: " << scores[i] << endl;
+		//cout << "BEGINNING SCORE: " << scores[i] << endl;
 
 		// ASPECT SCORE
 		float lineLeft = getDistance(candidates[i][0], candidates[i][1]);
@@ -902,8 +987,8 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 
 		// BEGIN OF FORMULA
 		scores[i] *= (1 + ((aspectScore * 0.4 + angleScore * 0.35 + depthScore * 0.25) * 0.5));
-		cout << "ENDSCORE: " << scores[i] << endl;
-		cout << "______________________" << endl;
+		/*cout << "ENDSCORE: " << scores[i] << endl;
+		cout << "______________________" << endl;*/
 
 	}
 
