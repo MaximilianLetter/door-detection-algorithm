@@ -3,8 +3,8 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
-#include <iostream>
 #include <stdlib.h>
+#include <iostream>
 #include <chrono>
 
 #define _USE_MATH_DEFINES
@@ -14,7 +14,7 @@ using namespace cv;
 using namespace std;
 
 // Declare all used constants
-const int MIN_FRAME_COUNT = 45;
+const int MIN_FRAME_COUNT = 60;
 
 const float CONTRAST = 1.2;
 
@@ -23,8 +23,9 @@ const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
 
 // Canny constants
-const int CANNY_LOWER = 50;
-const int CANNY_UPPER = 200;
+// NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
+const double CANNY_LOWER = 0.33;
+const double CANNY_UPPER = 1.33;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
@@ -35,27 +36,35 @@ const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
 
+// Hough line constants
+const int HOUGH_LINE_WIDTH = 15;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 5;
+const int HOUGH_LINE_WIDTH_MAX = 30;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
+const int HOUGH_COUNT_LIMIT = 20;
+
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
-const float LINE_ANGLE_MIN = 0.85; // RAD from  0.875
-const float POINT_DEPTH_CLOSENESS = 0.25;
+const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
+const float POINT_DEPTH_CLOSENESS = 0.4;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD from 0.175
 const float LENGTH_DIFF_MAX = 0.12; // from 0.12
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.8;
+const float ASPECT_RATIO_MAX = 0.6;
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0; //from 10.0
 const float RECTANGLE_OPPOSITE_THRESH = 10.0; //from 10.0
-const float LINE_DEPTH_CLOSENESS = 0.25;
+const float LINE_DEPTH_CLOSENESS = 0.4;
 
 // Comparison of rectangles to edges constants
-const float RECT_THRESH = 0.75; // from 0.85
+const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
-const int LINE_WIDTH = 4;
+const int LINE_WIDTH = 8;
 
 // Selection of best candidate constants
 const float UPVOTE_FACTOR = 1.2;
@@ -63,16 +72,22 @@ const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
 const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
 
+const float GOAL_RATIO = 0.45;
+const float GOAL_RATIO_RANGE = 0.15;
+const float GOAL_ANGLES = 90;
+const float GOAL_ANGLES_DIFF_RANGE = 20;
+
 // Declare all used functions
 bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, float depthRange, int height);
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
+double getMedian(Mat channel);
 
 int main(int argc, char** argv)
 {
@@ -94,40 +109,7 @@ int main(int argc, char** argv)
 
 	if (!video)
 	{
-		//Mat image;
-		//image = imread(samples::findFile("data/" + fileName), IMREAD_COLOR);
-
-		//if (image.empty()) // Check for invalid input
-		//{
-		//	cout << "Could not open or find the image" << std::endl;
-		//	return -1;
-		//}
-
-		//vector<Point2f> result = {};
-		//bool success = detect(image, result);
-
-		//if (result.size() > 0)
-		//{
-		//	cout << "DOOR FOUND" << endl;
-
-		//	// Scale up to match input size (6x for FHD, 4x for HD)
-		//	for (int i = 0; i < result.size(); i++)
-		//	{
-		//		result[i] = result[i] * 17;
-		//	}
-
-		//	line(image, result[0], result[1], Scalar(255, 255, 0), 5);
-		//	line(image, result[1], result[2], Scalar(255, 255, 0), 5);
-		//	line(image, result[2], result[3], Scalar(255, 255, 0), 5);
-		//	line(image, result[3], result[0], Scalar(255, 255, 0), 5);
-		//}
-		//else {
-		//	cout << "NO DOOR" << endl;
-		//}
-
-		//resize(image, image, image.size() / 6);
-		//imshow("Display window", image);
-		//waitKey(0);
+		cout << "Optical Flow needs a video as input" << endl;
 	}
 	else
 	{
@@ -152,6 +134,7 @@ int main(int argc, char** argv)
 		Mat prevFrame, prevFrameGray;
 		cap >> prevFrame;
 
+		// Results in 360p by 0.5 factor
 		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
 
 		resize(prevFrame, prevFrame, smallSize);
@@ -285,7 +268,7 @@ int main(int argc, char** argv)
 			//add(frame, mask, img);
 			img = frame;
 			imshow("Frame", img);
-			imshow("Mask", drawMask);
+			//imshow("Mask", drawMask);
 
 			prevFrameGray = frameGray.clone();
 			p0 = good_new;
@@ -321,8 +304,6 @@ int main(int argc, char** argv)
 				}
 
 				imshow("Display window", frame);
-
-				cout << endl << "result " << result.size() << endl;
 			}
 
 			//auto size = frame.size();
@@ -385,33 +366,120 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 	// Generate edges
 	Mat edges;
-	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
+	double median = getMedian(blurred);
+
+	// Very dark images can go to values like 9, resulting in extremely noisy images
+	median = max((double)30, median);
+	cout << "MEDIAN " << median << endl;
+
+	double lowerThresh = max((double)0, (CANNY_LOWER * median));
+	double higherThresh = min((double)255, (CANNY_UPPER * median));
+
+	Canny(blurred, edges, lowerThresh, higherThresh);
 	imshow("Edges window", edges);
+
+	// Generate hough lines
+	Mat houghMat;
+	houghMat = Mat::zeros(edges.size(), edges.type());
+
+	vector<Vec2f> houghLines; // will hold the results of the detection
+	int thresh = (int)(width * 0.33);
+	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0); // runs the actual detection
+	cout << "houghLines amount: " << houghLines.size() << endl;
+	cout << "corners amount: " << points.size() << endl;
+
+	vector<Vec2f> filteredHoughLines;
+	vector<int> filteredHoughLinesWidth;
+
+	for (size_t h = 0; h < houghLines.size(); h++)
+	{
+		//cout << "LINE: " << houghLines[h] << endl;
+		bool lineDone = false;
+
+		for (int f = 0; f < filteredHoughLines.size(); f++)
+		{
+			Vec2f diff = houghLines[h] - filteredHoughLines[f];
+			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
+			{
+				cout << "combined " << houghLines[h] << " ---- " << filteredHoughLines[f] << endl;
+				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
+				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
+				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
+				lineDone = true;
+				break;
+			}
+		}
+
+		if (lineDone) continue;
+
+		filteredHoughLines.push_back(houghLines[h]);
+		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
+	}
+	cout << "filtered houghlines amount: " << filteredHoughLines.size() << endl;
+
+	//for (int h = 0; h < filteredHoughLines.size(); h++)
+	//{
+	//	float rho = filteredHoughLines[h][0], theta = filteredHoughLines[h][1];
+
+	//	Point pt1, pt2;
+	//	double a = cos(theta), b = sin(theta);
+	//	double x0 = a * rho, y0 = b * rho;
+	//	pt1.x = cvRound(x0 + 1000 * (-b));
+	//	pt1.y = cvRound(y0 + 1000 * (a));
+	//	pt2.x = cvRound(x0 - 1000 * (-b));
+	//	pt2.y = cvRound(y0 - 1000 * (a));
+
+	//	float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+	//	//cout << "angle: " << angle;
+	//	if (angle < 80 || angle > 100)
+	//	{
+	//		continue;
+	//	}
+
+	//	line(houghMat, pt1, pt2, 255, filteredHoughLinesWidth[h], LINE_AA);
+	//	imshow("testLines", houghMat);
+	//	waitKey(0);
+
+	//}
+
 
 
 	float min = *min_element(depths.begin(), depths.end());
 	float max = *max_element(depths.begin(), depths.end());
-	float range = max - min;
+	float depthRange = max - min;
 
+	// this is all just for testing
 	for (uint i = 0; i < points.size(); i++)
 	{
-		float depthToColor = 255 * ((depths[i] - min) / range);
+		float depthToColor = 255 * ((depths[i] - min) / depthRange);
 		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
 		circle(blurred, points[i], 5, col, -1);
 	}
 
+
+
+
+
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
 	vector<float> lineLengths = {};
-	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, range, height);
+	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, filteredHoughLines, filteredHoughLinesWidth, depthRange, image.size());
+
+	for (int i = 0; i < lines.size(); i++)
+	{
+		line(image, lines[i][0], lines[i][1], Scalar(255, 255, 0), 2);
+	}
+	//imshow("Lines", image);
 
 	// Group corners based on found lines to rectangles
-	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines, lineDepths, lineLengths, range);
+	vector<float> rectDepthDiffs = {};
+	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectDepthDiffs, lines, lineDepths, lineLengths, depthRange);
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
 	vector<vector<Point2f>> candidates;
+	vector<float> updDepthDiffs;
 	vector<float> scores;
 	for (int i = 0; i < rectangles.size(); i++)
 	{
@@ -420,9 +488,12 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 		if (result > RECT_THRESH)
 		{
 			candidates.push_back(rectangles[i]);
+			updDepthDiffs.push_back(rectDepthDiffs[i]);
 			scores.push_back(result);
 		}
 	}
+	rectDepthDiffs = updDepthDiffs;
+
 	cout << endl << "candidates " << candidates.size() << endl;
 
 	for (int i = 0; i < candidates.size(); i++)
@@ -438,7 +509,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
-		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+		vector<Point2f> door = selectBestCandidate(candidates, rectDepthDiffs, depthRange, scores);
 		result = door;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
@@ -451,73 +522,165 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, float depthRange, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size)
 {
 	auto t1 = chrono::steady_clock::now();
 
-	float lengthMax = LINE_MAX * height;
-	float lengthMin = LINE_MIN * height;
+	float lengthMax = LINE_MAX * size.height;
+	float lengthMin = LINE_MIN * size.height;
 
 	vector<vector<Point2f>> lines;
 
-	for (int i = 0; i < corners.size(); i++)
+	Mat houghMat;
+	Rect fullRect = Rect(cv::Point(), size);
+	int linesComputed = 0;
+
+	for (size_t h = 0; h < houghLines.size(); h++)
 	{
-		float iDepth = depths[i];
-		//if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
+		houghMat = Mat::zeros(size, CV_8U);
 
-		for (int j = 0; j < corners.size(); j++)
+		float rho = houghLines[h][0], theta = houghLines[h][1];
+
+		Point pt1, pt2;
+		double a = cos(theta), b = sin(theta);
+		double x0 = a * rho, y0 = b * rho;
+		pt1.x = cvRound(x0 + 1000 * (-b));
+		pt1.y = cvRound(y0 + 1000 * (a));
+		pt2.x = cvRound(x0 - 1000 * (-b));
+		pt2.y = cvRound(y0 - 1000 * (a));
+
+		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+		if (angle < 80 || angle > 100)
 		{
-			if (j <= i) continue;
+			continue;
+		}
+		linesComputed++;
 
-			float jDepth = depths[j];
-			//if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
-			if (abs(iDepth - jDepth) > (depthRange * POINT_DEPTH_CLOSENESS))
-			{
-				continue;
-			}
+		// houghLines are ordered by votes, therefor weaker lines can be omitted
+		if (linesComputed > HOUGH_COUNT_LIMIT)
+		{
+			continue;
+		}
 
-			float distance = getDistance(corners[i], corners[j]);
-			if (distance < lengthMin || distance > lengthMax)
-			{
-				continue;
-			}
+		line(houghMat, pt1, pt2, 1, houghLinesWidth[h], LINE_AA);
+		//imshow("Hough Lines", houghMat);
 
-			float orientation = getOrientation(corners[i], corners[j]);
-			if (orientation < LINE_ANGLE_MIN)
+		vector<Point2f> houghPoints = {};
+		vector<float> houghDepths = {};
+		for (size_t j = 0; j < corners.size(); j++)
+		{
+			if (fullRect.contains(corners[j]) && houghMat.at<uchar>(corners[j]))
 			{
-				continue;
+				houghPoints.push_back(corners[j]);
+				houghDepths.push_back(depths[j]);
 			}
+		}
 
-			// Sort by y-value, so that the high points are first
-			vector<Point2f> line;
-			if (corners[i].y < corners[j].y)
+		for (size_t i = 0; i < houghPoints.size(); i++)
+		{
+			float iDepth = houghDepths[i];
+			//if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
+
+			for (int j = 0; j < houghPoints.size(); j++)
 			{
-				line = { corners[i], corners[j] };
+				if (j <= i) continue;
+
+				float jDepth = houghDepths[j];
+				//if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
+				if (abs(iDepth - jDepth) > (depthRange * POINT_DEPTH_CLOSENESS))
+				{
+					continue;
+				}
+
+				float distance = getDistance(houghPoints[i], houghPoints[j]);
+				if (distance < lengthMin || distance > lengthMax)
+				{
+					continue;
+				}
+
+				/*float orientation = getOrientation(corners[i], corners[j]);
+				if (orientation < LINE_ANGLE_MIN)
+				{
+					continue;
+				}*/
+
+				// Sort by y-value, so that the high points are first
+				vector<Point2f> line;
+				if (houghPoints[i].y < houghPoints[j].y)
+				{
+					line = { houghPoints[i], houghPoints[j] };
+				}
+				else {
+					line = { houghPoints[j], houghPoints[i] };
+				}
+
+				lines.push_back(line);
+				lineDepths.push_back((iDepth + jDepth) / 2);
+				lineLengths.push_back(distance);
 			}
-			else {
-				line = { corners[j], corners[i] };
-			}
-			lines.push_back(line);
-			lineDepths.push_back((iDepth + jDepth) / 2);
-			lineLengths.push_back(distance);
 		}
 	}
+
+	//imshow("Hough Lines", houghMat);
+
+
+	//for (int i = 0; i < corners.size(); i++)
+	//{
+	//	float iDepth = depths[i];
+	//	//if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
+
+	//	for (int j = 0; j < corners.size(); j++)
+	//	{
+	//		if (j <= i) continue;
+
+	//		float jDepth = depths[j];
+	//		//if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
+	//		if (abs(iDepth - jDepth) > (depthRange * POINT_DEPTH_CLOSENESS))
+	//		{
+	//			continue;
+	//		}
+
+	//		float distance = getDistance(corners[i], corners[j]);
+	//		if (distance < lengthMin || distance > lengthMax)
+	//		{
+	//			continue;
+	//		}
+
+	//		float orientation = getOrientation(corners[i], corners[j]);
+	//		if (orientation < LINE_ANGLE_MIN)
+	//		{
+	//			continue;
+	//		}
+
+	//		// Sort by y-value, so that the high points are first
+	//		vector<Point2f> line;
+	//		if (corners[i].y < corners[j].y)
+	//		{
+	//			line = { corners[i], corners[j] };
+	//		}
+	//		else {
+	//			line = { corners[j], corners[i] };
+	//		}
+	//		lines.push_back(line);
+	//		lineDepths.push_back((iDepth + jDepth) / 2);
+	//		lineLengths.push_back(distance);
+	//	}
+	//}
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
 	cout << "cornersToVertLines " << duration << "ms" << endl;
+	cout << "Number of Lines: " << lines.size() << endl;
 
 	return lines;
 }
 
 // Group rectangles that represent door candidates out of vertical lines
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
 {
 	auto t1 = chrono::steady_clock::now();
 
 	vector<vector<Point2f>> rects;
-
-	cout << "Number of Lines: " << lines.size() << endl;
 
 	for (int i = 0; i < lines.size(); i++)
 	{
@@ -531,7 +694,8 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 				continue;
 			}
 
-			if (abs(lineDepths[i] - lineDepths[j]) > (depthRange * LINE_DEPTH_CLOSENESS))
+			float depthDiff = abs(lineDepths[i] - lineDepths[j]);
+			if (depthDiff > (depthRange * LINE_DEPTH_CLOSENESS))
 			{
 				continue;
 			}
@@ -603,6 +767,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 			// Sort in order: leftBot > leftTop > rightTop > rightBot
 			vector<Point2f> group = { lines[i][1], lines[i][0], lines[j][0], lines[j][1] };
 			rects.push_back(group);
+			rectDepthDiffs.push_back(depthDiff);
 		}
 	}
 
@@ -617,7 +782,6 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 {
 	float result = 0.0;
-	float bottomBonus = 0.0;
 
 	for (int i = 0; i < rect.size() - 1; i++)
 	{
@@ -644,15 +808,21 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 
 	// Get average fillRatio for all lines but bottom line
 	result = result / 3;
-	cout << result << endl;
 
 	return result;
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores)
 {
 	cout << candidates.size() << "size" << endl;
+
+	// These values have meaning for all candidates and need to be calculated once
+	// NOTE: this is the first version and is cinda crappy
+	float candidatesDepthRange = *max_element(rectDepthDiffs.begin(), rectDepthDiffs.end());
+	float depthUpvoteRange = max((double)candidatesDepthRange, min(7.5, depthRange * 0.1));
+
+
 	for (int i = 0; i < candidates.size(); i++)
 	{
 		// NOTE: this can be a trap and should be somewhat dynamic
@@ -691,23 +861,57 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		}*/
 
 		// Check if there is a door with the same top corners
-		for (int j = 0; j < candidates.size(); j++)
-		{
-			if (j == i) continue;
-			// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
+		//for (int j = 0; j < candidates.size(); j++)
+		//{
+		//	if (j == i) continue;
+		//	// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
 
-			if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
-			{
-				scores[i] = scores[i] * UPVOTE_FACTOR;
-			}
-		}
+		//	if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
+		//	{
+		//		scores[i] = scores[i] * UPVOTE_FACTOR;
+		//	}
+		//}
 
-		//cout << scores[i];
+		cout << "BEGINNING SCORE: " << scores[i] << endl;
+
+		// ASPECT SCORE
+		float lineLeft = getDistance(candidates[i][0], candidates[i][1]);
+		float lineTop = getDistance(candidates[i][1], candidates[i][2]);
+		float lineRight = getDistance(candidates[i][2], candidates[i][3]);
+		float lineBot = getDistance(candidates[i][3], candidates[i][0]);
+
+		float aspectRatio = ((lineTop + lineBot) * 0.5) / ((lineLeft + lineRight) * 0.5);
+
+		float aspectScore = (GOAL_RATIO_RANGE - abs(GOAL_RATIO - aspectRatio)) / GOAL_RATIO_RANGE;
+
+		// ANGLE SCORE
+		// NOTE: maybe punish single angle breakouts more
+		float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
+		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
+		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
+		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
+
+		float angleDiff = abs(GOAL_ANGLES - angle0) + abs(GOAL_ANGLES - angle1) + abs(GOAL_ANGLES - angle2) + abs(GOAL_ANGLES - angle3);
+
+		float angleScore = (GOAL_ANGLES_DIFF_RANGE - angleDiff) / GOAL_ANGLES_DIFF_RANGE;
+
+		// DEPTH SCORE
+		// NOTE: depthUpvoteRange is calculated on top
+		float depthScore = (depthUpvoteRange - rectDepthDiffs[i]) / depthUpvoteRange;
+		
+
+		// BEGIN OF FORMULA
+		scores[i] *= (1 + ((aspectScore * 0.4 + angleScore * 0.35 + depthScore * 0.25) * 0.5));
+		cout << "ENDSCORE: " << scores[i] << endl;
+		cout << "______________________" << endl;
+
 	}
 
 	int index = max_element(scores.begin(), scores.end()) - scores.begin();
 	//cout << " winner " << index;
 	vector<Point2f> door = candidates[index];
+
+	//waitKey(0);
 
 	return door;
 }
@@ -741,4 +945,30 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
 	angle = abs(acos(angle) * 180/M_PI);
 
 	return angle;
+}
+
+// Calculates the median value of a single channel
+// based on https://github.com/arnaudgelas/OpenCVExamples/blob/master/cvMat/Statistics/Median/Median.cpp
+double getMedian(cv::Mat channel)
+{
+	double m = (channel.rows * channel.cols) / 2;
+	int bin = 0;
+	double med = -1.0;
+
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+	bool uniform = true;
+	bool accumulate = false;
+	cv::Mat hist;
+	cv::calcHist(&channel, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange, uniform, accumulate);
+
+	for (int i = 0; i < histSize && med < 0.0; ++i)
+	{
+		bin += cvRound(hist.at< float >(i));
+		if (bin > m && med < 0.0)
+			med = i;
+	}
+
+	return med;
 }
