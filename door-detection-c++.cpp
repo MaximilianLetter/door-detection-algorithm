@@ -3,6 +3,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
+#include <stdlib.h>
 #include <iostream>
 #include <chrono>
 
@@ -22,9 +23,9 @@ const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
 
 // Canny constants
-// NOTE: The lower threshold is lower than most canny auto threshold, but necessary to catch some door edges
-const double CANNY_LOWER = 0.35;
-const double CANNY_UPPER = 0.66;
+// NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
+const double CANNY_LOWER = 0.33;
+const double CANNY_UPPER = 1.33;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
@@ -36,6 +37,7 @@ const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
 
 // Vertical lines constants
+const int HOUGH_COUNT_LIMIT = 20;
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
 const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
@@ -364,7 +366,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	Canny(blurred, edges, lowerThresh, higherThresh);
 	imshow("Edges window", edges);
 
-
+	// Generate hough lines
 	Mat houghMat;
 	houghMat = Mat::zeros(edges.size(), edges.type());
 
@@ -481,6 +483,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 
 	Mat houghMat;
 	Rect fullRect = Rect(cv::Point(), size);
+	int linesComputed = 0;
 
 	for (size_t h = 0; h < houghLines.size(); h++)
 	{
@@ -498,6 +501,13 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 
 		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
 		if (angle < 80 || angle > 100)
+		{
+			continue;
+		}
+		linesComputed++;
+
+		// houghLines are ordered by votes, therefor weaker lines can be omitted
+		if (linesComputed > HOUGH_COUNT_LIMIT)
 		{
 			continue;
 		}
@@ -553,6 +563,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 				else {
 					line = { houghPoints[j], houghPoints[i] };
 				}
+
 				lines.push_back(line);
 				lineDepths.push_back((iDepth + jDepth) / 2);
 				lineLengths.push_back(distance);
