@@ -80,9 +80,9 @@ const float GOAL_ANGLES_DIFF_RANGE = 20;
 // Declare all used functions
 bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
@@ -444,23 +444,27 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 
 
 
-
 	float min = *min_element(depths.begin(), depths.end());
 	float max = *max_element(depths.begin(), depths.end());
-	float range = max - min;
+	float depthRange = max - min;
 
+	// this is all just for testing
 	for (uint i = 0; i < points.size(); i++)
 	{
-		float depthToColor = 255 * ((depths[i] - min) / range);
+		float depthToColor = 255 * ((depths[i] - min) / depthRange);
 		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
 		circle(blurred, points[i], 5, col, -1);
 	}
 
+
+
+
+
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
 	vector<float> lineLengths = {};
-	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, filteredHoughLines, filteredHoughLinesWidth, range, image.size());
+	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, filteredHoughLines, filteredHoughLinesWidth, depthRange, image.size());
 
 	for (int i = 0; i < lines.size(); i++)
 	{
@@ -469,11 +473,13 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	//imshow("Lines", image);
 
 	// Group corners based on found lines to rectangles
-	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines, lineDepths, lineLengths, range);
+	vector<float> rectDepthDiffs = {};
+	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectDepthDiffs, lines, lineDepths, lineLengths, depthRange);
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
 	vector<vector<Point2f>> candidates;
+	vector<float> updDepthDiffs;
 	vector<float> scores;
 	for (int i = 0; i < rectangles.size(); i++)
 	{
@@ -482,9 +488,12 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 		if (result > RECT_THRESH)
 		{
 			candidates.push_back(rectangles[i]);
+			updDepthDiffs.push_back(rectDepthDiffs[i]);
 			scores.push_back(result);
 		}
 	}
+	rectDepthDiffs = updDepthDiffs;
+
 	cout << endl << "candidates " << candidates.size() << endl;
 
 	for (int i = 0; i < candidates.size(); i++)
@@ -500,7 +509,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
-		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+		vector<Point2f> door = selectBestCandidate(candidates, rectDepthDiffs, depthRange, scores);
 		result = door;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
@@ -667,7 +676,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 }
 
 // Group rectangles that represent door candidates out of vertical lines
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -685,7 +694,8 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 				continue;
 			}
 
-			if (abs(lineDepths[i] - lineDepths[j]) > (depthRange * LINE_DEPTH_CLOSENESS))
+			float depthDiff = abs(lineDepths[i] - lineDepths[j]);
+			if (depthDiff > (depthRange * LINE_DEPTH_CLOSENESS))
 			{
 				continue;
 			}
@@ -757,6 +767,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vec
 			// Sort in order: leftBot > leftTop > rightTop > rightBot
 			vector<Point2f> group = { lines[i][1], lines[i][0], lines[j][0], lines[j][1] };
 			rects.push_back(group);
+			rectDepthDiffs.push_back(depthDiff);
 		}
 	}
 
@@ -802,9 +813,16 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores)
 {
 	cout << candidates.size() << "size" << endl;
+
+	// These values have meaning for all candidates and need to be calculated once
+	// NOTE: this is the first version and is cinda crappy
+	float candidatesDepthRange = *max_element(rectDepthDiffs.begin(), rectDepthDiffs.end());
+	float depthUpvoteRange = max((double)candidatesDepthRange, min(7.5, depthRange * 0.1));
+
+
 	for (int i = 0; i < candidates.size(); i++)
 	{
 		// NOTE: this can be a trap and should be somewhat dynamic
@@ -854,8 +872,7 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		//	}
 		//}
 
-		cout << "UPSCORING __ START __" << endl;
-		cout << scores[i] << endl;
+		cout << "BEGINNING SCORE: " << scores[i] << endl;
 
 		// ASPECT SCORE
 		float lineLeft = getDistance(candidates[i][0], candidates[i][1]);
@@ -875,15 +892,18 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
 
 		float angleDiff = abs(GOAL_ANGLES - angle0) + abs(GOAL_ANGLES - angle1) + abs(GOAL_ANGLES - angle2) + abs(GOAL_ANGLES - angle3);
-		cout << "angleDIFF " << angleDiff << endl;
 
 		float angleScore = (GOAL_ANGLES_DIFF_RANGE - angleDiff) / GOAL_ANGLES_DIFF_RANGE;
-		cout << "angleSCORE " << angleScore << endl;
+
+		// DEPTH SCORE
+		// NOTE: depthUpvoteRange is calculated on top
+		float depthScore = (depthUpvoteRange - rectDepthDiffs[i]) / depthUpvoteRange;
+		
 
 		// BEGIN OF FORMULA
-		scores[i] *= (1 + ((aspectScore + angleScore) / 2) * 0.5);
-
-		cout << scores[i] << endl;
+		scores[i] *= (1 + ((aspectScore * 0.4 + angleScore * 0.35 + depthScore * 0.25) * 0.5));
+		cout << "ENDSCORE: " << scores[i] << endl;
+		cout << "______________________" << endl;
 
 	}
 
