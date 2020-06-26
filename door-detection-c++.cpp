@@ -24,22 +24,17 @@ const int MIN_POINTS_COUNT = 40;
 const int MIN_FRAME_COUNT = 60;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
+// Image conversion and processing constants
 const float CONTRAST = 1.2;
-
-// Blur constants
 const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
-
-// Canny constants
-// NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
-const double CANNY_LOWER = 0.33;
+const double CANNY_LOWER = 0.33; // NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
 const double CANNY_UPPER = 1.33;
 
-// NOTE: these values need to be improved to ensure to always find the corners of a door
+// NOTE: Corner qualit could be tuned down, or amount up to find possibly needed corners
 // Corner detection constants
 const int CORNERS_MAX = 50;
-//const float CORNERS_QUALITY = 0.01;
-const float CORNERS_QUALITY = 0.05;
+const float CORNERS_QUALITY = 0.05; // 0.01
 const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
@@ -54,7 +49,7 @@ const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
 const float LINE_MAX = 0.9;
-const float LINE_MIN = 0.3;
+const float LINE_MIN = 0.4;
 const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
 const float POINT_DEPTH_CLOSENESS = 0.4;
 
@@ -74,12 +69,7 @@ const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
 const int LINE_WIDTH = 8;
 
-// Selection of best candidate constants
-const float UPVOTE_FACTOR = 1.2;
-const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
-const float COLOR_DIFF_THRESH = 50.0;
-const float ANGLE_DEVIATION_THRESH = 10.0;
-
+// Selection formula constants
 const float GOAL_RATIO = 0.45;
 const float GOAL_RATIO_RANGE = 0.15;
 const float GOAL_ANGLES = 90;
