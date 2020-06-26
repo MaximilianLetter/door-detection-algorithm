@@ -37,7 +37,13 @@ const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
 
 // Vertical lines constants
+const int HOUGH_LINE_WIDTH = 15;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 5;
+const int HOUGH_LINE_WIDTH_MAX = 30;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
 const int HOUGH_COUNT_LIMIT = 20;
+
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
 const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
@@ -67,7 +73,7 @@ const float ANGLE_DEVIATION_THRESH = 10.0;
 
 // Declare all used functions
 bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, float depthRange, Size size);
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
@@ -376,30 +382,59 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	cout << "houghLines amount: " << houghLines.size() << endl;
 	cout << "corners amount: " << points.size() << endl;
 
-	/*for (size_t h = 0; h < houghLines.size(); h++)
+	vector<Vec2f> filteredHoughLines;
+	vector<int> filteredHoughLinesWidth;
+
+	for (size_t h = 0; h < houghLines.size(); h++)
 	{
-		float rho = houghLines[h][0], theta = houghLines[h][1];
+		//cout << "LINE: " << houghLines[h] << endl;
+		bool lineDone = false;
 
-		Point pt1, pt2;
-		double a = cos(theta), b = sin(theta);
-		double x0 = a * rho, y0 = b * rho;
-		pt1.x = cvRound(x0 + 1000 * (-b));
-		pt1.y = cvRound(y0 + 1000 * (a));
-		pt2.x = cvRound(x0 - 1000 * (-b));
-		pt2.y = cvRound(y0 - 1000 * (a));
-
-		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
-		cout << "angle: " << angle;
-		if (angle < 80 || angle > 100)
+		for (int f = 0; f < filteredHoughLines.size(); f++)
 		{
-			continue;
+			Vec2f diff = houghLines[h] - filteredHoughLines[f];
+			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
+			{
+				cout << "combined " << houghLines[h] << " ---- " << filteredHoughLines[f] << endl;
+				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
+				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
+				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
+				lineDone = true;
+				break;
+			}
 		}
 
-		line(houghMat, pt1, pt2, 255, 10, LINE_AA);
-		imshow("testLines", houghMat);
-		waitKey(0);
+		if (lineDone) continue;
 
-	}*/
+		filteredHoughLines.push_back(houghLines[h]);
+		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
+	}
+	cout << "filtered houghlines amount: " << filteredHoughLines.size() << endl;
+
+	//for (int h = 0; h < filteredHoughLines.size(); h++)
+	//{
+	//	float rho = filteredHoughLines[h][0], theta = filteredHoughLines[h][1];
+
+	//	Point pt1, pt2;
+	//	double a = cos(theta), b = sin(theta);
+	//	double x0 = a * rho, y0 = b * rho;
+	//	pt1.x = cvRound(x0 + 1000 * (-b));
+	//	pt1.y = cvRound(y0 + 1000 * (a));
+	//	pt2.x = cvRound(x0 - 1000 * (-b));
+	//	pt2.y = cvRound(y0 - 1000 * (a));
+
+	//	float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+	//	//cout << "angle: " << angle;
+	//	if (angle < 80 || angle > 100)
+	//	{
+	//		continue;
+	//	}
+
+	//	line(houghMat, pt1, pt2, 255, filteredHoughLinesWidth[h], LINE_AA);
+	//	imshow("testLines", houghMat);
+	//	waitKey(0);
+
+	//}
 
 
 
@@ -419,7 +454,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
 	vector<float> lineLengths = {};
-	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, houghLines, range, image.size());
+	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, depths, filteredHoughLines, filteredHoughLinesWidth, range, image.size());
 
 	for (int i = 0; i < lines.size(); i++)
 	{
@@ -472,7 +507,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, float depthRange, Size size)
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -512,8 +547,8 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 			continue;
 		}
 
-		line(houghMat, pt1, pt2, 1, 20, LINE_AA);
-		imshow("Hough Lines", houghMat);
+		line(houghMat, pt1, pt2, 1, houghLinesWidth[h], LINE_AA);
+		//imshow("Hough Lines", houghMat);
 
 		vector<Point2f> houghPoints = {};
 		vector<float> houghDepths = {};
@@ -571,7 +606,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 		}
 	}
 
-
+	imshow("Hough Lines", houghMat);
 
 
 	//for (int i = 0; i < corners.size(); i++)
