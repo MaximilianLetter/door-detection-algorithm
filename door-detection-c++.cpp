@@ -36,7 +36,7 @@ const float CORNERS_MIN_DIST = 15.0;
 const int CORNERS_MASK_OFFSET = 10;
 const bool CORNERS_HARRIS = false;
 
-// Vertical lines constants
+// Hough line constants
 const int HOUGH_LINE_WIDTH = 15;
 const int HOUGH_LINE_ADDITIONAL_WIDTH = 5;
 const int HOUGH_LINE_WIDTH_MAX = 30;
@@ -44,6 +44,7 @@ const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
 const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
 const int HOUGH_COUNT_LIMIT = 20;
 
+// Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.3;
 const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
@@ -53,7 +54,7 @@ const float POINT_DEPTH_CLOSENESS = 0.4;
 const float ANGLE_MAX = 0.175; // RAD from 0.175
 const float LENGTH_DIFF_MAX = 0.12; // from 0.12
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.8;
+const float ASPECT_RATIO_MAX = 0.6;
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0; //from 10.0
@@ -70,6 +71,11 @@ const float UPVOTE_FACTOR = 1.2;
 const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
 const float COLOR_DIFF_THRESH = 50.0;
 const float ANGLE_DEVIATION_THRESH = 10.0;
+
+const float GOAL_RATIO = 0.45;
+const float GOAL_RATIO_RANGE = 0.15;
+const float GOAL_ANGLES = 90;
+const float GOAL_ANGLES_DIFF_RANGE = 20;
 
 // Declare all used functions
 bool detect(Mat& image, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
@@ -262,7 +268,7 @@ int main(int argc, char** argv)
 			//add(frame, mask, img);
 			img = frame;
 			imshow("Frame", img);
-			imshow("Mask", drawMask);
+			//imshow("Mask", drawMask);
 
 			prevFrameGray = frameGray.clone();
 			p0 = good_new;
@@ -460,7 +466,7 @@ bool detect(Mat& input, vector<Point2f>points, vector<float>depths, vector<Point
 	{
 		line(image, lines[i][0], lines[i][1], Scalar(255, 255, 0), 2);
 	}
-	imshow("Lines", image);
+	//imshow("Lines", image);
 
 	// Group corners based on found lines to rectangles
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines, lineDepths, lineLengths, range);
@@ -606,7 +612,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 		}
 	}
 
-	imshow("Hough Lines", houghMat);
+	//imshow("Hough Lines", houghMat);
 
 
 	//for (int i = 0; i < corners.size(); i++)
@@ -837,16 +843,45 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		}*/
 
 		// Check if there is a door with the same top corners
-		for (int j = 0; j < candidates.size(); j++)
-		{
-			if (j == i) continue;
-			// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
+		//for (int j = 0; j < candidates.size(); j++)
+		//{
+		//	if (j == i) continue;
+		//	// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
 
-			if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
-			{
-				scores[i] = scores[i] * UPVOTE_FACTOR;
-			}
-		}
+		//	if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
+		//	{
+		//		scores[i] = scores[i] * UPVOTE_FACTOR;
+		//	}
+		//}
+
+		cout << "UPSCORING __ START __" << endl;
+		cout << scores[i] << endl;
+
+		// ASPECT SCORE
+		float lineLeft = getDistance(candidates[i][0], candidates[i][1]);
+		float lineTop = getDistance(candidates[i][1], candidates[i][2]);
+		float lineRight = getDistance(candidates[i][2], candidates[i][3]);
+		float lineBot = getDistance(candidates[i][3], candidates[i][0]);
+
+		float aspectRatio = ((lineTop + lineBot) * 0.5) / ((lineLeft + lineRight) * 0.5);
+
+		float aspectScore = (GOAL_RATIO_RANGE - abs(GOAL_RATIO - aspectRatio)) / GOAL_RATIO_RANGE;
+
+		// ANGLE SCORE
+		// NOTE: maybe punish single angle breakouts more
+		float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
+		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
+		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
+		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
+
+		float angleDiff = abs(GOAL_ANGLES - angle0) + abs(GOAL_ANGLES - angle1) + abs(GOAL_ANGLES - angle2) + abs(GOAL_ANGLES - angle3);
+		cout << "angleDIFF " << angleDiff << endl;
+
+		float angleScore = (GOAL_ANGLES_DIFF_RANGE - angleDiff) / GOAL_ANGLES_DIFF_RANGE;
+		cout << "angleSCORE " << angleScore << endl;
+
+		// BEGIN OF FORMULA
+		scores[i] *= (1 + ((aspectScore + angleScore) / 2) * 0.5);
 
 		cout << scores[i] << endl;
 
