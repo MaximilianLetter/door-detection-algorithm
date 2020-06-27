@@ -22,6 +22,7 @@ using namespace std;
 enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 40;
 const int MIN_FRAME_COUNT = 60;
+const float MIN_DEPTH_DISTANCE = 50.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -33,11 +34,9 @@ const double CANNY_UPPER = 1.33;
 
 // NOTE: Corner qualit could be tuned down, or amount up to find possibly needed corners
 // Corner detection constants
-const int CORNERS_MAX = 50;
-const float CORNERS_QUALITY = 0.05; // 0.01
-const float CORNERS_MIN_DIST = 15.0;
-const int CORNERS_MASK_OFFSET = 10;
-const bool CORNERS_HARRIS = false;
+const int CORNERS_MAX = 200;
+const float CORNERS_QUALITY = 0.01;
+const float CORNERS_MIN_DIST = 20.0;
 
 // Hough line constants
 const int HOUGH_LINE_WIDTH = 15;
@@ -50,18 +49,17 @@ const int HOUGH_COUNT_LIMIT = 20;
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.4;
-const float LINE_ANGLE_MIN = 0.9; // RAD from  0.875
 const float POINT_DEPTH_CLOSENESS = 0.4;
 
 // Rectangles constants
-const float ANGLE_MAX = 0.175; // RAD from 0.175
-const float LENGTH_DIFF_MAX = 0.12; // from 0.12
+const float ANGLE_MAX = 0.175; // RAD
+const float LENGTH_DIFF_MAX = 0.12;
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.6;
+const float ASPECT_RATIO_MAX = 0.8; // from 0.6
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
-const float RECTANGLE_THRESH = 10.0; //from 10.0
-const float RECTANGLE_OPPOSITE_THRESH = 10.0; //from 10.0
+const float RECTANGLE_THRESH = 10.0;
+const float RECTANGLE_OPPOSITE_THRESH = 10.0;
 const float LINE_DEPTH_CLOSENESS = 0.4;
 
 // Comparison of rectangles to edges constants
@@ -76,8 +74,8 @@ const float GOAL_ANGLES = 90;
 const float GOAL_ANGLES_DIFF_RANGE = 20;
 
 // Declare all used functions
-bool detect(Mat& grayImage, vector<Point2f>points, vector<float>depths, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> depths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
+bool detect(Mat grayImage, vector<Point2f>points, vector<float>pointDepths, vector<Point2f>& result);
+vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> pointDepths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
 vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores);
@@ -130,11 +128,8 @@ int main(int argc, char** argv)
 
 		// Start Optical Flow setup
 		vector<Point2f> p0, p1;
-
 		Mat frame, frameGray;
 		Mat prevFrameGray;
-
-		// Distances over multiple frames
 		vector<float> longTimeDistances;
 
 		// Results in 360p by 0.5 factor (if it is HD 720p)
@@ -147,7 +142,7 @@ int main(int argc, char** argv)
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(smallSize.height, smallSize.width));
 		
 		// State properties that are modified over time
-		int state = State::UNSTABLE;
+		State state = State::UNSTABLE;
 		int frameCount = 0;
 		int failedAttemptCount = 0;
 
@@ -165,7 +160,7 @@ int main(int argc, char** argv)
 
 			if (state == State::UNSTABLE)
 			{
-				goodFeaturesToTrack(frameGray, p0, 200, 0.01, 20, Mat(), 7, false, 0.04);
+				goodFeaturesToTrack(frameGray, p0, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, Mat(), 7, false, 0.04);
 				frameCount = 0;
 				longTimeDistances = {};
 
@@ -194,11 +189,6 @@ int main(int argc, char** argv)
 				// State is now STABLE or WATCHING
 				frameCount++;
 				cout << "Frames in row: " << frameCount << endl;
-
-				if (frameCount > MIN_FRAME_COUNT)
-				{
-					state = State::STABLE;
-				}
 
 				// Calculate optical flow
 				vector<uchar> status;
@@ -236,6 +226,7 @@ int main(int argc, char** argv)
 					continue;
 				}
 
+				float avgDistance = 0.0;
 				// Initialization if longTimeDistances starts or was cleared
 				if (longTimeDistances.size() == 0)
 				{
@@ -263,11 +254,20 @@ int main(int argc, char** argv)
 					for (uint i = 0; i < distances.size(); i++)
 					{
 						longTimeDistances[i] += distances[i];
+						avgDistance += longTimeDistances[i];
 					}
 				}
+				avgDistance = avgDistance / longTimeDistances.size();
+				cout << avgDistance << endl;
 
 				prevFrameGray = frameGray.clone();
 				p0 = goodMatches;
+
+				// Check if door detection is now possible
+				if (frameCount > MIN_FRAME_COUNT || avgDistance > MIN_DEPTH_DISTANCE)
+				{
+					state = State::STABLE;
+				}
 
 				// Finally a door can be detected
 				if (state == State::STABLE)
@@ -292,6 +292,7 @@ int main(int argc, char** argv)
 						// Reset to start if this detection isnt going anywhere
 						if (failedAttemptCount > DETECTION_FAILED_RESET_COUNT)
 						{
+							failedAttemptCount = 0;
 							state = State::UNSTABLE;
 						}
 					}
@@ -312,7 +313,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& inputGray, vector<Point2f>points, vector<float>pointDepths, vector<Point2f>& result)
+bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -378,12 +379,19 @@ bool detect(Mat& inputGray, vector<Point2f>points, vector<float>pointDepths, vec
 		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
 		circle(blurred, points[i], 5, col, -1);
-	}*/
+	}
+	imshow("Dev window", blurred);*/
 
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
 	vector<float> lineLengths = {};
 	vector<vector<Point2f>> lines = cornersToVertLines(lineDepths, lineLengths, points, pointDepths, filteredHoughLines, filteredHoughLinesWidth, depthRange, imgGray.size());
+
+	/*for (int i = 0; i < lines.size(); i++)
+	{
+		line(blurred, lines[i][0], lines[i][1], Scalar(0, 255, 0), 2);
+	}
+	imshow("Dev window", blurred);*/
 
 	// Group corners based on found lines to rectangles
 	vector<float> rectDepthDiffs = {};
@@ -478,7 +486,6 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 		}
 
 		line(houghMat, pt1, pt2, 1, houghLinesWidth[h], LINE_AA);
-		//imshow("Hough Lines", houghMat);
 
 		vector<Point2f> houghPoints = {};
 		vector<float> houghDepths = {};
@@ -494,14 +501,12 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 		for (size_t i = 0; i < houghPoints.size(); i++)
 		{
 			float iDepth = houghDepths[i];
-			//if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
 
 			for (int j = 0; j < houghPoints.size(); j++)
 			{
 				if (j <= i) continue;
 
 				float jDepth = houghDepths[j];
-				//if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
 				if (abs(iDepth - jDepth) > (depthRange * POINT_DEPTH_CLOSENESS))
 				{
 					continue;
@@ -512,12 +517,6 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 				{
 					continue;
 				}
-
-				/*float orientation = getOrientation(corners[i], corners[j]);
-				if (orientation < LINE_ANGLE_MIN)
-				{
-					continue;
-				}*/
 
 				// Sort by y-value, so that the high points are first
 				vector<Point2f> line;
@@ -535,52 +534,6 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 			}
 		}
 	}
-
-	//imshow("Hough Lines", houghMat);
-
-
-	//for (int i = 0; i < corners.size(); i++)
-	//{
-	//	float iDepth = depths[i];
-	//	//if (iDepth < depthExtremeMin || iDepth > depthExtremeMax)
-
-	//	for (int j = 0; j < corners.size(); j++)
-	//	{
-	//		if (j <= i) continue;
-
-	//		float jDepth = depths[j];
-	//		//if (jDepth < depthExtremeMin || jDepth > depthExtremeMax)
-	//		if (abs(iDepth - jDepth) > (depthRange * POINT_DEPTH_CLOSENESS))
-	//		{
-	//			continue;
-	//		}
-
-	//		float distance = getDistance(corners[i], corners[j]);
-	//		if (distance < lengthMin || distance > lengthMax)
-	//		{
-	//			continue;
-	//		}
-
-	//		float orientation = getOrientation(corners[i], corners[j]);
-	//		if (orientation < LINE_ANGLE_MIN)
-	//		{
-	//			continue;
-	//		}
-
-	//		// Sort by y-value, so that the high points are first
-	//		vector<Point2f> line;
-	//		if (corners[i].y < corners[j].y)
-	//		{
-	//			line = { corners[i], corners[j] };
-	//		}
-	//		else {
-	//			line = { corners[j], corners[i] };
-	//		}
-	//		lines.push_back(line);
-	//		lineDepths.push_back((iDepth + jDepth) / 2);
-	//		lineLengths.push_back(distance);
-	//	}
-	//}
 
 	auto t2 = chrono::steady_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
@@ -655,6 +608,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vec
 				continue;
 			}
 
+			// These angles could be reused for voting and should be saved
 			float angles[4];
 			angles[0] = getCornerAngle(lines[i][1], lines[i][0], lines[j][0]);
 			angles[1] = getCornerAngle(lines[i][0], lines[j][0], lines[j][1]);
