@@ -142,7 +142,7 @@ int main(int argc, char** argv)
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(smallSize.height, smallSize.width));
 		
 		// State properties that are modified over time
-		State state = State::UNSTABLE;
+		State state = UNSTABLE;
 		int frameCount = 0;
 		int failedAttemptCount = 0;
 
@@ -158,7 +158,7 @@ int main(int argc, char** argv)
 			rotate(frame, frame, ROTATE_90_CLOCKWISE);
 			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
 
-			if (state == State::UNSTABLE)
+			if (state == UNSTABLE)
 			{
 				goodFeaturesToTrack(frameGray, p0, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, Mat(), 7, false, 0.04);
 				frameCount = 0;
@@ -177,7 +177,7 @@ int main(int argc, char** argv)
 							if (topPoints > 1)
 							{
 								prevFrameGray = frameGray.clone();
-								state = State::WATCHING;
+								state = WATCHING;
 								break;
 							}
 						};
@@ -188,7 +188,7 @@ int main(int argc, char** argv)
 			{
 				// State is now STABLE or WATCHING
 				frameCount++;
-				cout << "Frames in row: " << frameCount << endl;
+				//cout << "Frames in row: " << frameCount << endl;
 
 				// Calculate optical flow
 				vector<uchar> status;
@@ -222,7 +222,7 @@ int main(int argc, char** argv)
 				// If too many points have been lost, return to UNSTABLE state
 				if (goodMatches.size() < MIN_POINTS_COUNT)
 				{
-					state = State::UNSTABLE;
+					state = UNSTABLE;
 					continue;
 				}
 
@@ -258,7 +258,7 @@ int main(int argc, char** argv)
 					}
 				}
 				avgDistance = avgDistance / longTimeDistances.size();
-				cout << avgDistance << endl;
+				//cout << avgDistance << endl;
 
 				prevFrameGray = frameGray.clone();
 				p0 = goodMatches;
@@ -266,11 +266,11 @@ int main(int argc, char** argv)
 				// Check if door detection is now possible
 				if (frameCount > MIN_FRAME_COUNT || avgDistance > MIN_DEPTH_DISTANCE)
 				{
-					state = State::STABLE;
+					state = STABLE;
 				}
 
 				// Finally a door can be detected
-				if (state == State::STABLE)
+				if (state == STABLE)
 				{
 					vector<Point2f> result = {};
 
@@ -293,7 +293,7 @@ int main(int argc, char** argv)
 						if (failedAttemptCount > DETECTION_FAILED_RESET_COUNT)
 						{
 							failedAttemptCount = 0;
-							state = State::UNSTABLE;
+							state = UNSTABLE;
 						}
 					}
 				}
@@ -302,6 +302,11 @@ int main(int argc, char** argv)
 			video.write(frame);
 
 			if ((char)waitKey(1) == 27) break;
+
+			auto t2 = chrono::steady_clock::now();
+			auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+			cout << "Overall DURATION: " << duration << endl;
+			cout << "------" << endl;
 		}
 
 		cap.release();
