@@ -22,7 +22,7 @@ using namespace std;
 enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 30;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 100.0;
+const float MIN_DEPTH_DISTANCE = 200.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -36,36 +36,36 @@ const double CANNY_UPPER = 1.33;
 // Corner detection constants
 const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 12.5;
+const float CORNERS_MIN_DIST = 6;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 10;
-const int HOUGH_LINE_ADDITIONAL_WIDTH = 4;
+const int HOUGH_LINE_WIDTH = 5;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
 const int HOUGH_LINE_WIDTH_MAX = 20;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 6;
-const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 15;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
 const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.4;
-const float POINT_DEPTH_CLOSENESS = 0.4;
+const float POINT_DEPTH_CLOSENESS = 0.25;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD
 const float LENGTH_DIFF_MAX = 0.12;
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.8; // from 0.6
+const float ASPECT_RATIO_MAX = 0.6; // from 0.6
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0;
 const float RECTANGLE_OPPOSITE_THRESH = 10.0;
-const float LINE_DEPTH_CLOSENESS = 0.4;
+const float LINE_DEPTH_CLOSENESS = 0.25;
 
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
-const int LINE_WIDTH = 6;
+const int LINE_WIDTH = 8;
 
 // Selection formula constants
 const float GOAL_RATIO = 0.45;
@@ -367,9 +367,12 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
 				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
 				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
-				continue;
+				lineDone = true;
+				break;
 			}
 		}
+
+		if (lineDone) continue;
 
 		filteredHoughLines.push_back(houghLines[h]);
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
