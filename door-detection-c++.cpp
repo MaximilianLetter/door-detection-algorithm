@@ -20,9 +20,9 @@ using namespace std;
 // WATCHING: not enough frames to be stable
 // stable: enough points and enough frames lived by
 enum State { UNSTABLE, WATCHING, STABLE };
-const int MIN_POINTS_COUNT = 18;
+const int MIN_POINTS_COUNT = 20;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 100.0;
+const float MIN_DEPTH_DISTANCE = 150.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -34,38 +34,38 @@ const double CANNY_UPPER = 1.33;
 
 // NOTE: Corner qualit could be tuned down, or amount up to find possibly needed corners
 // Corner detection constants
-const int CORNERS_MAX = 100;
+const int CORNERS_MAX = 80;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 5.0;
+const float CORNERS_MIN_DIST = 3.0;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 6;
-const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
+const int HOUGH_LINE_WIDTH = 4;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 1;
 const int HOUGH_LINE_WIDTH_MAX = 15;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 4;
-const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.075;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
 const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
 const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.4;
-const float POINT_DEPTH_CLOSENESS = 0.4;
+const float POINT_DEPTH_CLOSENESS = 0.25;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD
 const float LENGTH_DIFF_MAX = 0.12;
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.8; // from 0.6
+const float ASPECT_RATIO_MAX = 0.6; // from 0.6
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0;
 const float RECTANGLE_OPPOSITE_THRESH = 10.0;
-const float LINE_DEPTH_CLOSENESS = 0.4;
+const float LINE_DEPTH_CLOSENESS = 0.25;
 
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
-const int LINE_WIDTH = 6;
+const int LINE_WIDTH = 8;
 
 // Selection formula constants
 const float GOAL_RATIO = 0.45;
@@ -195,8 +195,8 @@ int main(int argc, char** argv)
 				// Calculate optical flow
 				vector<uchar> status;
 				vector<float> err;
-				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 5, 0.03);
-				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(9, 9), 2, criteria); // TODO check other size
+				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
+				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria); // TODO check other size
 				vector<Point2f> goodMatches;
 
 				vector<bool> pointControl;
@@ -358,22 +358,53 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	for (size_t h = 0; h < houghLines.size(); h++)
 	{
 		bool lineDone = false;
-
 		for (int f = 0; f < filteredHoughLines.size(); f++)
 		{
 			Vec2f diff = houghLines[h] - filteredHoughLines[f];
-			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
+			if (abs(diff[0]) < filteredHoughLinesWidth[f] && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
 			{
 				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
 				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
 				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
-				continue;
+				
+				lineDone = true;
+				break;
 			}
 		}
+
+		if (lineDone) continue;
 
 		filteredHoughLines.push_back(houghLines[h]);
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
+
+	cout << "--- filtered ---" << endl;
+	int counter = 0;
+	for (size_t h = 0; h < filteredHoughLines.size(); h++)
+	{
+		float rho = houghLines[h][0], theta = houghLines[h][1];
+
+		Point pt1, pt2;
+		double a = cos(theta), b = sin(theta);
+		double x0 = a * rho, y0 = b * rho;
+		pt1.x = cvRound(x0 + 1000 * (-b));
+		pt1.y = cvRound(y0 + 1000 * (a));
+		pt2.x = cvRound(x0 - 1000 * (-b));
+		pt2.y = cvRound(y0 - 1000 * (a));
+
+		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+		if (angle < 80 || angle > 100)
+		{
+			continue;
+		}
+		//cout << "RHO_THETA: " << rho << " " << theta << endl;
+		counter++;
+
+		line(blurred, pt1, pt2, 255, filteredHoughLinesWidth[h], LINE_AA);
+	}
+	cout << "filtered houghlines displayed: " << counter << endl;
+	imshow("Dev window", blurred);
+	//waitKey(0);
 
 	float min = *min_element(pointDepths.begin(), pointDepths.end());
 	float max = *max_element(pointDepths.begin(), pointDepths.end());
