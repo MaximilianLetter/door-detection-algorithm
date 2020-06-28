@@ -20,7 +20,7 @@ using namespace std;
 // WATCHING: not enough frames to be stable
 // stable: enough points and enough frames lived by
 enum State { UNSTABLE, WATCHING, STABLE };
-const int MIN_POINTS_COUNT = 20;
+const int MIN_POINTS_COUNT = 18;
 const int MIN_FRAME_COUNT = 60;
 const float MIN_DEPTH_DISTANCE = 100.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
@@ -36,14 +36,14 @@ const double CANNY_UPPER = 1.33;
 // Corner detection constants
 const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 10.0;
+const float CORNERS_MIN_DIST = 5.0;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 8;
-const int HOUGH_LINE_ADDITIONAL_WIDTH = 3;
-const int HOUGH_LINE_WIDTH_MAX = 20;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 5;
-const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
+const int HOUGH_LINE_WIDTH = 6;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
+const int HOUGH_LINE_WIDTH_MAX = 15;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 4;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.075;
 const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
@@ -65,7 +65,7 @@ const float LINE_DEPTH_CLOSENESS = 0.4;
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
-const int LINE_WIDTH = 8;
+const int LINE_WIDTH = 6;
 
 // Selection formula constants
 const float GOAL_RATIO = 0.45;
@@ -133,7 +133,7 @@ int main(int argc, char** argv)
 		// Results in 360p by 0.5 factor (if it is HD 720p)
 		// Results in 360p by 0.75 factor (if it is 480p)
 		//Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
-		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.375, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.375);
+		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.25, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.25);
 		cout << smallSize << endl;
 
 		// Used for resetting feature points if none top is detected
