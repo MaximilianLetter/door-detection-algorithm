@@ -20,9 +20,9 @@ using namespace std;
 // WATCHING: not enough frames to be stable
 // stable: enough points and enough frames lived by
 enum State { UNSTABLE, WATCHING, STABLE };
-const int MIN_POINTS_COUNT = 40;
+const int MIN_POINTS_COUNT = 20;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 50.0;
+const float MIN_DEPTH_DISTANCE = 100.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -34,15 +34,15 @@ const double CANNY_UPPER = 1.33;
 
 // NOTE: Corner qualit could be tuned down, or amount up to find possibly needed corners
 // Corner detection constants
-const int CORNERS_MAX = 200;
+const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 20.0;
+const float CORNERS_MIN_DIST = 10.0;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 15;
-const int HOUGH_LINE_ADDITIONAL_WIDTH = 5;
-const int HOUGH_LINE_WIDTH_MAX = 30;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
+const int HOUGH_LINE_WIDTH = 8;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 3;
+const int HOUGH_LINE_WIDTH_MAX = 20;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 5;
 const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.05;
 const int HOUGH_COUNT_LIMIT = 20;
 
@@ -123,8 +123,6 @@ int main(int argc, char** argv)
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
 
-		// Used for resetting feature points if none top is detected
-		Rect topRect = Rect(0, 0, frameWidth, frameHeight * 0.4);
 
 		// Start Optical Flow setup
 		vector<Point2f> p0, p1;
@@ -135,7 +133,11 @@ int main(int argc, char** argv)
 		// Results in 360p by 0.5 factor (if it is HD 720p)
 		// Results in 360p by 0.75 factor (if it is 480p)
 		//Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
-		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.75, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.75);
+		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.375, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.375);
+		cout << smallSize << endl;
+
+		// Used for resetting feature points if none top is detected
+		Rect topRect = Rect(0, 0, smallSize.width, smallSize.height * 0.4);
 
 		// For video capturing only
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
@@ -193,8 +195,8 @@ int main(int argc, char** argv)
 				// Calculate optical flow
 				vector<uchar> status;
 				vector<float> err;
-				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 10, 0.03);
-				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(15, 15), 2, criteria);
+				TermCriteria criteria = TermCriteria((TermCriteria::COUNT) + (TermCriteria::EPS), 5, 0.03);
+				calcOpticalFlowPyrLK(prevFrameGray, frameGray, p0, p1, status, err, Size(9, 9), 2, criteria); // TODO check other size
 				vector<Point2f> goodMatches;
 
 				vector<bool> pointControl;
