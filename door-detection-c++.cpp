@@ -383,14 +383,16 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	float depthRange = max - min;
 
 	// this is all just for testing
-	/*for (uint i = 0; i < points.size(); i++)
+	Mat pointMat;
+	blurred.copyTo(pointMat);
+	for (uint i = 0; i < points.size(); i++)
 	{
 		float depthToColor = 255 * ((pointDepths[i] - min) / depthRange);
 		Scalar col = Scalar(depthToColor, depthToColor, depthToColor);
 
-		circle(blurred, points[i], 5, col, -1);
+		circle(pointMat, points[i], 5, col, -1);
 	}
-	imshow("Dev window", blurred);*/
+	imshow("Points", pointMat);
 
 	// Connect corners to vertical lines
 	vector<float> lineDepths = {};
@@ -425,14 +427,16 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	}
 	rectDepthDiffs = updDepthDiffs;
 
-	//for (int i = 0; i < candidates.size(); i++)
-	//{
-	//	line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
-	//}
-	//imshow("Dev window", blurred);
+	Mat candidateMat;
+	blurred.copyTo(candidateMat);
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+	}
+	imshow("Candidates", candidateMat);
 
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
