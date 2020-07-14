@@ -130,11 +130,13 @@ int main(int argc, char** argv)
 		Mat prevFrameGray;
 		vector<float> longTimeDistances;
 
-		// Results in 360p by 0.5 factor (if it is HD 720p)
-		// Results in 360p by 0.75 factor (if it is 480p)
-		Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.5, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.5);
-		//Size smallSize = Size(cap.get(CAP_PROP_FRAME_WIDTH) * 0.25, cap.get(CAP_PROP_FRAME_HEIGHT) * 0.25);
-		cout << smallSize << endl;
+		// NOTE: video input in Unity is different
+		// INPUT: 1920 x 1080
+		// Tested resolutions: 
+		//	-	640 x 360
+		//	-	427 x 240
+		//	-	213 x 120
+		Size smallSize = Size(427, 240);
 
 		// Used for resetting feature points if none top is detected
 		Rect topRect = Rect(0, 0, smallSize.width, smallSize.height * 0.4);
