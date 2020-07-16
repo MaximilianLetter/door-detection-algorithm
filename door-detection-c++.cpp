@@ -334,13 +334,11 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	// Increase contrast
 	imgGray.convertTo(imgGray, -1, CONTRAST, 0);
 
-	// Blur the image
-	Mat blurred;
-	GaussianBlur(imgGray, blurred, BLUR_KERNEL, BLUR_SIGMA);
+	
 
 	// Generate edges
 	Mat edges;
-	double median = getMedian(blurred);
+	double median = getMedian(imgGray);
 
 	// Very dark images can go to values like 9, resulting in extremely noisy images
 	median = max((double)30, median);
@@ -348,8 +346,29 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	double lowerThresh = max((double)0, (CANNY_LOWER * median));
 	double higherThresh = min((double)255, (CANNY_UPPER * median));
 
+
+	Mat blurred;
+
+	// Blur the image
+	GaussianBlur(imgGray, blurred, Size(5, 5), BLUR_SIGMA);
+
 	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("Edges window", edges);
+	imshow("EDGES1", edges);
+
+	// Blur the image
+	blur(imgGray, blurred, Size(5, 5));
+
+	Canny(blurred, edges, lowerThresh, higherThresh);
+	imshow("EDGES2", edges);
+
+	// Blur the image
+	imgGray.copyTo(blurred);
+	medianBlur(imgGray, blurred, 5);
+
+	Canny(blurred, edges, lowerThresh, higherThresh);
+	imshow("EDGES3", edges);
+
+	waitKey(0);
 
 	// Generate hough lines
 	vector<Vec2f> houghLines;
@@ -381,6 +400,34 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 		filteredHoughLines.push_back(houghLines[h]);
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
+
+	// show hough lines
+	Mat houghShowMat;
+	imgGray.copyTo(houghShowMat);
+
+	for (size_t h = 0; h < filteredHoughLines.size(); h++)
+	{
+		float rho = filteredHoughLines[h][0], theta = filteredHoughLines[h][1];
+
+		Point pt1, pt2;
+		double a = cos(theta), b = sin(theta);
+		double x0 = a * rho, y0 = b * rho;
+		pt1.x = cvRound(x0 + 1000 * (-b));
+		pt1.y = cvRound(y0 + 1000 * (a));
+		pt2.x = cvRound(x0 - 1000 * (-b));
+		pt2.y = cvRound(y0 - 1000 * (a));
+
+		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+		if (angle < 80 || angle > 100)
+		{
+			continue;
+		}
+
+		line(houghShowMat, pt1, pt2, 255, filteredHoughLinesWidth[h]);
+	}
+	imshow("HoughTest", houghShowMat);
+
+
 
 	float min = *min_element(pointDepths.begin(), pointDepths.end());
 	float max = *max_element(pointDepths.begin(), pointDepths.end());
