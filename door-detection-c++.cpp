@@ -22,7 +22,8 @@ using namespace std;
 enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 30;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 200.0;
+const float MIN_DEPTH_DISTANCE = 100.0;
+const float MIN_REQUIRED_DEPTH_DISTANCE = 250.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -270,7 +271,7 @@ int main(int argc, char** argv)
 				p0 = goodMatches;
 
 				// Check if door detection is now possible
-				if (frameCount > MIN_FRAME_COUNT || avgDistance > MIN_DEPTH_DISTANCE)
+				if ((frameCount > MIN_FRAME_COUNT && avgDistance > MIN_DEPTH_DISTANCE) || MIN_REQUIRED_DEPTH_DISTANCE)
 				{
 					state = STABLE;
 				}
@@ -350,25 +351,32 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	Mat blurred;
 
 	// Blur the image
-	GaussianBlur(imgGray, blurred, Size(5, 5), BLUR_SIGMA);
+	GaussianBlur(imgGray, blurred, Size(5, 5), 1);
+	//imshow("bluryy", blurred);
+
+	/*GaussianBlur(imgGray, blurred, Size(3, 3), 3);
+	imshow("blurxx", blurred);*/
 
 	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("EDGES1", edges);
+	imshow("edges", edges);
 
-	// Blur the image
-	blur(imgGray, blurred, Size(5, 5));
+	//// Blur the image
+	//blur(imgGray, blurred, Size(5, 5));
 
-	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("EDGES2", edges);
+	//Canny(blurred, edges, lowerThresh, higherThresh);
+	//imshow("EDGES2", edges);
 
-	// Blur the image
-	imgGray.copyTo(blurred);
-	medianBlur(imgGray, blurred, 5);
+	//// Blur the image
+	//imgGray.copyTo(blurred);
+	//medianBlur(imgGray, blurred, 5);
 
-	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("EDGES3", edges);
+	//Canny(blurred, edges, lowerThresh, higherThresh);
+	//imshow("EDGES3", edges);
 
-	waitKey(0);
+	//bilateralFilter(imgGray, blurred, 5, 3, 7);
+	//imshow("EDGES4", edges);
+
+	//waitKey(0);
 
 	// Generate hough lines
 	vector<Vec2f> houghLines;
