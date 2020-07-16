@@ -138,8 +138,10 @@ int main(int argc, char** argv)
 		//	-	213 x 120
 		Size smallSize = Size(427, 240);
 
+		// TODO height / widht must be switched o something
+
 		// Used for resetting feature points if none top is detected
-		Rect topRect = Rect(0, 0, smallSize.width, smallSize.height * 0.4);
+		Rect topRect = Rect(0, 0, smallSize.height * 0.4, smallSize.width);
 
 		// For video capturing only
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
@@ -433,10 +435,10 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	blurred.copyTo(candidateMat);
 	for (int i = 0; i < candidates.size(); i++)
 	{
-		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+		line(candidateMat, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+		line(candidateMat, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+		line(candidateMat, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+		line(candidateMat, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
 	}
 	imshow("Candidates", candidateMat);
 
