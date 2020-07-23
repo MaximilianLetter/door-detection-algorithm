@@ -3,7 +3,6 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
-#include <stdlib.h>
 #include <iostream>
 #include <chrono>
 
@@ -23,7 +22,6 @@ enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 30;
 const int MIN_FRAME_COUNT = 60;
 const float MIN_DEPTH_DISTANCE = 100.0;
-const float MIN_REQUIRED_DEPTH_DISTANCE = 250.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -37,7 +35,7 @@ const double CANNY_UPPER = 1.33;
 // Corner detection constants
 const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 6;
+const float CORNERS_MIN_DIST = 12;
 
 // Hough line constants
 const int HOUGH_LINE_WIDTH = 5;
@@ -165,6 +163,29 @@ int main(int argc, char** argv)
 			rotate(frame, frame, ROTATE_90_CLOCKWISE);
 			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
 
+
+			/*Mat badPoints;
+			frame.copyTo(badPoints);
+			goodFeaturesToTrack(frameGray, p0, CORNERS_MAX, 0.05, 6, Mat(), 7, false, 0.04);
+			for (int i = 0; i < p0.size(); i++)
+			{
+				circle(badPoints, p0[i], 3, Scalar(255, 0, 0), -1);
+			}
+
+			Mat goodPoints;
+			frame.copyTo(goodPoints);
+			goodFeaturesToTrack(frameGray, p1, CORNERS_MAX, 0.01, 12, Mat(), 7, false, 0.04);
+			for (int i = 0; i < p1.size(); i++)
+			{
+				circle(goodPoints, p1[i], 3, Scalar(255, 0, 0), -1);
+			}
+
+			imshow("BAD", badPoints);
+			imshow("GOOD", goodPoints);
+
+			waitKey(0);*/
+
+
 			if (state == UNSTABLE)
 			{
 				goodFeaturesToTrack(frameGray, p0, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, Mat(), 7, false, 0.04);
@@ -271,7 +292,7 @@ int main(int argc, char** argv)
 				p0 = goodMatches;
 
 				// Check if door detection is now possible
-				if ((frameCount > MIN_FRAME_COUNT && avgDistance > MIN_DEPTH_DISTANCE) || MIN_REQUIRED_DEPTH_DISTANCE)
+				if (frameCount > MIN_FRAME_COUNT && avgDistance > MIN_DEPTH_DISTANCE)
 				{
 					state = STABLE;
 				}
@@ -333,7 +354,7 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	inputGray.copyTo(imgGray);
 
 	// Increase contrast
-	imgGray.convertTo(imgGray, -1, CONTRAST, 0);
+	//imgGray.convertTo(imgGray, -1, CONTRAST, 0);
 
 	
 
@@ -351,14 +372,19 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	Mat blurred;
 
 	// Blur the image
-	GaussianBlur(imgGray, blurred, Size(5, 5), 1);
+	//GaussianBlur(imgGray, blurred, Size(5, 5), 1);
 	//imshow("bluryy", blurred);
 
-	/*GaussianBlur(imgGray, blurred, Size(3, 3), 3);
-	imshow("blurxx", blurred);*/
+	GaussianBlur(imgGray, blurred, Size(3, 3), 3);
+	//imshow("blurxx", blurred);
+
+	Canny(blurred, edges, max((double)0, (0.66 * median)), higherThresh);
+	imshow("edges", edges);
 
 	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("edges", edges);
+	imshow("edges2", edges);
+
+	waitKey(0);
 
 	//// Blur the image
 	//blur(imgGray, blurred, Size(5, 5));
@@ -380,7 +406,7 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 
 	// Generate hough lines
 	vector<Vec2f> houghLines;
-	int thresh = (int)(imgGray.size().height * 0.25);
+	int thresh = (int)(imgGray.size().height * 0.2);
 	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0);
 	vector<Vec2f> filteredHoughLines;
 	vector<int> filteredHoughLinesWidth;
