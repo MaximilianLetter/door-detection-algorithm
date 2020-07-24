@@ -22,7 +22,7 @@ using namespace std;
 enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 30;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 200.0;
+const float MIN_DEPTH_DISTANCE = 100.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
@@ -36,7 +36,7 @@ const double CANNY_UPPER = 1.33;
 // Corner detection constants
 const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 6;
+const float CORNERS_MIN_DIST = 12;
 
 // Hough line constants
 const int HOUGH_LINE_WIDTH = 5;
@@ -270,7 +270,7 @@ int main(int argc, char** argv)
 				p0 = goodMatches;
 
 				// Check if door detection is now possible
-				if (frameCount > MIN_FRAME_COUNT || avgDistance > MIN_DEPTH_DISTANCE)
+				if (frameCount > MIN_FRAME_COUNT && avgDistance > MIN_DEPTH_DISTANCE)
 				{
 					state = STABLE;
 				}
