@@ -47,7 +47,6 @@ const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
 const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
-const float LINE_MAX = 0.9;
 const float LINE_MIN = 0.4;
 const float POINT_DEPTH_CLOSENESS = 0.25;
 
@@ -489,7 +488,6 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 {
 	auto t1 = chrono::steady_clock::now();
 
-	float lengthMax = LINE_MAX * size.height;
 	float lengthMin = LINE_MIN * size.height;
 
 	vector<vector<Point2f>> lines;
@@ -553,7 +551,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 				}
 
 				float distance = getDistance(houghPoints[i], houghPoints[j]);
-				if (distance < lengthMin || distance > lengthMax)
+				if (distance < lengthMin)
 				{
 					continue;
 				}
