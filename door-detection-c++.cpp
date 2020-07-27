@@ -3,7 +3,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <iostream>
 #include <chrono>
 
@@ -76,14 +76,20 @@ const float GOAL_ANGLES_DIFF_RANGE = 20;
 // Declare all used functions
 bool detect(Mat grayImage, vector<Point2f>points, vector<float>pointDepths, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<float>& lineLengths, vector<Point2f> corners, vector<float> pointDepths, vector<Vec2f> houghLines, vector<int> houghLinesWidth, float depthRange, Size size);
-vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<float>>& rectInnerAngles, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, vector<vector<float>> rectInnerAngles, float depthRange, vector<float> scores);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
 double getMedian(Mat channel);
+
+void evaluateNextCorner(int event, int x, int y, int flags, void* userdata);
+
+vector<Point2f> evaluationResult;
+Mat evaluationMat;
+
 
 int main(int argc, char** argv)
 {
@@ -102,6 +108,8 @@ int main(int argc, char** argv)
 	namedWindow("Display window", WINDOW_AUTOSIZE);
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
 	namedWindow("Dev window", WINDOW_AUTOSIZE);
+
+	setMouseCallback("Display window", evaluateNextCorner, NULL);
 
 	if (!video)
 	{
@@ -163,6 +171,9 @@ int main(int argc, char** argv)
 			resize(frame, frame, smallSize);
 			rotate(frame, frame, ROTATE_90_CLOCKWISE);
 			cvtColor(frame, frameGray, COLOR_BGR2GRAY);
+
+			bool evaluationBool = false;
+
 
 			if (state == UNSTABLE)
 			{
@@ -302,10 +313,17 @@ int main(int argc, char** argv)
 							state = UNSTABLE;
 						}
 					}
+
+					// EVALUATION
+					frame.copyTo(evaluationMat);
+					evaluationResult = result;
+					evaluationBool = true;
 				}
 			}
 			imshow("Display window", frame);
 			video.write(frame);
+
+			if(evaluationBool) waitKey();
 
 			if ((char)waitKey(1) == 27) break;
 
@@ -411,12 +429,14 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 
 	// Group corners based on found lines to rectangles
 	vector<float> rectDepthDiffs = {};
-	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectDepthDiffs, lines, lineDepths, lineLengths, depthRange);
+	vector<vector<float>> rectInnerAngles;
+	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectDepthDiffs, rectInnerAngles, lines, lineDepths, lineLengths, depthRange);
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
 	vector<vector<Point2f>> candidates;
 	vector<float> updDepthDiffs;
+	vector<vector<float>> updInnerAngles;
 	vector<float> scores;
 	for (int i = 0; i < rectangles.size(); i++)
 	{
@@ -426,10 +446,12 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 		{
 			candidates.push_back(rectangles[i]);
 			updDepthDiffs.push_back(rectDepthDiffs[i]);
+			updInnerAngles.push_back(rectInnerAngles[i]);
 			scores.push_back(result);
 		}
 	}
 	rectDepthDiffs = updDepthDiffs;
+	rectInnerAngles = updInnerAngles;
 
 	Mat candidateMat;
 	blurred.copyTo(candidateMat);
@@ -445,7 +467,7 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
-		vector<Point2f> door = selectBestCandidate(candidates, rectDepthDiffs, depthRange, scores);
+		vector<Point2f> door = selectBestCandidate(candidates, rectDepthDiffs, rectInnerAngles, depthRange, scores);
 		result = door;
 
 		auto t2 = chrono::steady_clock::now();
@@ -562,7 +584,7 @@ vector<vector<Point2f>> cornersToVertLines(vector<float>& lineDepths, vector<flo
 }
 
 // Group rectangles that represent door candidates out of vertical lines
-vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
+vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vector<vector<float>>& rectInnerAngles, vector<vector<Point2f>> lines, vector<float> lineDepths, vector<float> lineLengths, float depthRange)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -627,11 +649,11 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vec
 			}
 
 			// These angles could be reused for voting and should be saved
-			float angles[4];
-			angles[0] = getCornerAngle(lines[i][1], lines[i][0], lines[j][0]);
-			angles[1] = getCornerAngle(lines[i][0], lines[j][0], lines[j][1]);
-			angles[2] = getCornerAngle(lines[j][0], lines[j][1], lines[i][1]);
-			angles[3] = getCornerAngle(lines[j][1], lines[i][1], lines[i][0]);
+			vector<float> angles;
+			angles.push_back(getCornerAngle(lines[i][1], lines[i][0], lines[j][0]));
+			angles.push_back(getCornerAngle(lines[i][0], lines[j][0], lines[j][1]));
+			angles.push_back(getCornerAngle(lines[j][0], lines[j][1], lines[i][1]));
+			angles.push_back(getCornerAngle(lines[j][1], lines[i][1], lines[i][0]));
 
 			bool rectangular = true;
 
@@ -655,6 +677,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<float>& rectDepthDiffs, vec
 			vector<Point2f> group = { lines[i][1], lines[i][0], lines[j][0], lines[j][1] };
 			rects.push_back(group);
 			rectDepthDiffs.push_back(depthDiff);
+			rectInnerAngles.push_back(angles);
 		}
 	}
 
@@ -700,7 +723,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, float depthRange, vector<float> scores)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> rectDepthDiffs, vector<vector<float>> rectInnerAngles, float depthRange, vector<float> scores)
 {
 	//cout << candidates.size() << "size" << endl;
 
@@ -773,10 +796,10 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 
 		// ANGLE SCORE
 		// NOTE: maybe punish single angle breakouts more
-		float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
-		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
-		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
-		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
+		float angle0 = rectInnerAngles[i][0];
+		float angle1 = rectInnerAngles[i][1];
+		float angle2 = rectInnerAngles[i][2];
+		float angle3 = rectInnerAngles[i][3];
 
 		float angleDiff = abs(GOAL_ANGLES - angle0) + abs(GOAL_ANGLES - angle1) + abs(GOAL_ANGLES - angle2) + abs(GOAL_ANGLES - angle3);
 
@@ -786,8 +809,6 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 		// NOTE: depthUpvoteRange is calculated on top
 		float depthScore = (depthUpvoteRange - rectDepthDiffs[i]) / depthUpvoteRange;
 		
-
-		// BEGIN OF FORMULA
 		scores[i] *= (1 + ((aspectScore * 0.4 + angleScore * 0.35 + depthScore * 0.25) * 0.5));
 		/*cout << "ENDSCORE: " << scores[i] << endl;
 		cout << "______________________" << endl;*/
@@ -858,4 +879,52 @@ double getMedian(cv::Mat channel)
 	}
 
 	return med;
+}
+
+void evaluateNextCorner(int event, int x, int y, int flags, void* userdata)
+{
+	float bestPointThresh = evaluationMat.size().width * 0.04;
+	float okayPointThresh = evaluationMat.size().width * 0.06;
+
+	if (event == EVENT_LBUTTONDOWN)
+	{
+		cout << "Position (" << x << ", " << y << ")" << endl;
+
+		if (evaluationResult.size() > 0)
+		{
+			Point2f inPoint = Point2f(x, y);
+			Point2f textPoint = Point2f(x, y - 20);
+
+			float closestDistance = 999.0;
+			Point2f closestPoint;
+
+			for (int i = 0; i < evaluationResult.size(); i++)
+			{
+				float dist = getDistance(inPoint, evaluationResult[i]);
+
+				if (dist < closestDistance)
+				{
+					closestDistance = dist;
+					closestPoint = evaluationResult[i];
+				}
+			}
+
+			Scalar color = Scalar(0, 0, 200);
+			if (closestDistance < bestPointThresh)
+			{
+				color = Scalar(0, 200, 0);
+			}
+			else if (closestDistance < okayPointThresh) {
+				color = Scalar(0, 200, 200);
+			}
+
+			circle(evaluationMat, inPoint, closestDistance, color, 2);
+			circle(evaluationMat, inPoint, 2, color, -1);
+
+			cout << "Distance: " << closestDistance << endl;
+			putText(evaluationMat, cv::format("%2.2f", closestDistance), textPoint, FONT_HERSHEY_PLAIN, 0.8, color);
+
+			imshow("Display window", evaluationMat);
+		}
+	}
 }
