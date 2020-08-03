@@ -79,6 +79,12 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
 double getMedian(Mat channel);
 
 void clickCallBack(int event, int x, int y, int flags, void* userdata);
+void evaluateNextCorner(int event, int x, int y, int flags, void* userdata);
+
+vector<Point2f> evaluationResult;
+Mat evaluationMat;
+
+
 
 int main(int argc, char** argv)
 {
@@ -95,10 +101,13 @@ int main(int argc, char** argv)
 	}
 
 	namedWindow("Display window", WINDOW_AUTOSIZE);
+	namedWindow("Result window", WINDOW_AUTOSIZE);
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
 	namedWindow("Dev window", WINDOW_AUTOSIZE);
 
 	setMouseCallback("Display window", clickCallBack, NULL);
+	setMouseCallback("Result window", evaluateNextCorner, NULL);
+
 
 	if (!video)
 	{
@@ -172,7 +181,7 @@ int main(int argc, char** argv)
 			imshow("Display window", frame);
 			video.write(frame);
 
-			char c = (char)waitKey(25);
+			char c = (char)waitKey(0);
 			if (c == 27) break;
 		}
 
@@ -291,7 +300,7 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, maskTop, 3);
 
 
-	/*for (int i = 0; i < cornersBot.size(); i++)
+	for (int i = 0; i < cornersBot.size(); i++)
 	{
 		circle(blurred, cornersBot[i], 3, 255, -1);
 	}
@@ -299,7 +308,7 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	for (int i = 0; i < cornersTop.size(); i++)
 	{
 		circle(blurred, cornersTop[i], 3, 255, -1);
-	}*/
+	}
 
 	// Connect corners to vertical lines
 	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop, filteredHoughLines, filteredHoughLinesWidth, imgGray.size());
@@ -327,15 +336,15 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	}
 	rectInnerAngles = updInnerAngles;
 
-	//for (int i = 0; i < candidates.size(); i++)
-	//{
-	//	/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-	//	line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
-	//	line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
-	//}
-	//imshow("Dev window", blurred);
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
+		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+	}
+	imshow("Dev window", blurred);
 
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
@@ -661,9 +670,62 @@ void clickCallBack(int event, int x, int y, int flags, void* userdata)
 			line(globalImg, result[1], result[2], Scalar(255, 255, 0), 2);
 			line(globalImg, result[2], result[3], Scalar(255, 255, 0), 2);
 			line(globalImg, result[3], result[0], Scalar(255, 255, 0), 2);
+
+			evaluationResult = result;
 		}
 
-		imshow("result", globalImg);
-		waitKey(0);
+		imshow("Result window", globalImg);
+
+		globalImg.copyTo(evaluationMat);
+	}
+}
+
+void evaluateNextCorner(int event, int x, int y, int flags, void* userdata)
+{
+	float diagonal = 227;
+
+	float bestPointThresh = diagonal * 0.035;
+	float okayPointThresh = diagonal * 0.05;
+
+	if (event == EVENT_LBUTTONDOWN)
+	{
+		cout << "Position (" << x << ", " << y << ")" << endl;
+
+		if (evaluationResult.size() > 0)
+		{
+			Point2f inPoint = Point2f(x, y);
+			Point2f textPoint = Point2f(x, y - 20);
+
+			float closestDistance = 999.0;
+			Point2f closestPoint;
+
+			for (int i = 0; i < evaluationResult.size(); i++)
+			{
+				float dist = getDistance(inPoint, evaluationResult[i]);
+
+				if (dist < closestDistance)
+				{
+					closestDistance = dist;
+					closestPoint = evaluationResult[i];
+				}
+			}
+
+			Scalar color = Scalar(0, 0, 200);
+			if (closestDistance < bestPointThresh)
+			{
+				color = Scalar(0, 200, 0);
+			}
+			else if (closestDistance < okayPointThresh) {
+				color = Scalar(0, 200, 200);
+			}
+
+			circle(evaluationMat, inPoint, closestDistance, color, 2);
+			circle(evaluationMat, inPoint, 2, color, -1);
+
+			cout << "Distance: " << closestDistance << endl;
+			putText(evaluationMat, cv::format("%2.2f", closestDistance), textPoint, FONT_HERSHEY_PLAIN, 0.8, color);
+
+			imshow("Result window", evaluationMat);
+		}
 	}
 }
