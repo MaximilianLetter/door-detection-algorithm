@@ -22,11 +22,11 @@ using namespace std;
 enum State { UNSTABLE, WATCHING, STABLE };
 const int MIN_POINTS_COUNT = 30;
 const int MIN_FRAME_COUNT = 60;
-const float MIN_DEPTH_DISTANCE = 100.0;
+const float MIN_DEPTH_DISTANCE = 50.0;
 const int DETECTION_FAILED_RESET_COUNT = 7;
 
 // Image conversion and processing constants
-const float CONTRAST = 1.2;
+//const float CONTRAST = 1.2;
 const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
 const double CANNY_LOWER = 0.33; // NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
@@ -36,19 +36,19 @@ const double CANNY_UPPER = 1.33;
 // Corner detection constants
 const int CORNERS_MAX = 100;
 const float CORNERS_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 12;
+const float CORNERS_MIN_DIST = 8;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 5;
+const int HOUGH_LINE_WIDTH = 4;
 const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
-const int HOUGH_LINE_WIDTH_MAX = 20;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 15;
+const int HOUGH_LINE_WIDTH_MAX = 14;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
 const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
 const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
 const float LINE_MIN = 0.4;
-const float POINT_DEPTH_CLOSENESS = 0.25;
+const float POINT_DEPTH_CLOSENESS = 0.3;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD
@@ -59,12 +59,12 @@ const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0;
 const float RECTANGLE_OPPOSITE_THRESH = 10.0;
-const float LINE_DEPTH_CLOSENESS = 0.25;
+const float LINE_DEPTH_CLOSENESS = 0.3;
 
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.8; // from 0.85
 const float LINE_THRESH = 0.65;
-const int LINE_WIDTH = 8;
+const int LINE_WIDTH = 6;
 
 // Selection formula constants
 const float GOAL_RATIO = 0.45;
@@ -143,7 +143,7 @@ int main(int argc, char** argv)
 		//	-	640 x 360
 		//	-	427 x 240
 		//	-	213 x 120
-		Size smallSize = Size(427, 240);
+		Size smallSize = Size(213, 120);
 
 		// TODO height / widht must be switched o something
 
@@ -349,7 +349,7 @@ bool detect(Mat inputGray, vector<Point2f>points, vector<float>pointDepths, vect
 	inputGray.copyTo(imgGray);
 
 	// Increase contrast
-	imgGray.convertTo(imgGray, -1, CONTRAST, 0);
+	//imgGray.convertTo(imgGray, -1, CONTRAST, 0);
 
 	// Blur the image
 	Mat blurred;
@@ -881,8 +881,10 @@ double getMedian(cv::Mat channel)
 
 void evaluateNextCorner(int event, int x, int y, int flags, void* userdata)
 {
-	float bestPointThresh = evaluationMat.size().width * 0.04;
-	float okayPointThresh = evaluationMat.size().width * 0.06;
+	float diagonal = 113;
+
+	float bestPointThresh = diagonal * 0.035;
+	float okayPointThresh = diagonal * 0.05;
 
 	if (event == EVENT_LBUTTONDOWN)
 	{
