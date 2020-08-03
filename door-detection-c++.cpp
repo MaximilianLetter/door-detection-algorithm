@@ -67,7 +67,7 @@ const float GOAL_ANGLES = 90;
 const float GOAL_ANGLES_DIFF_RANGE = 20;
 
 // Declare all used functions
-bool detect(Mat& image, Point2f point, vector<Point2f>& result);
+bool detect(Mat image, Point2f point, vector<Point2f>& result);
 vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, vector<Vec2f> houghLines, vector<int> houghLinesWidth, Size size);
 vector<vector<Point2f>> vertLinesToRectangles(vector<vector<float>>& rectInnerAngles, vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
@@ -76,7 +76,6 @@ vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<f
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
-
 double getMedian(Mat channel);
 
 void clickCallBack(int event, int x, int y, int flags, void* userdata);
@@ -186,7 +185,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& input, Point2f inputPoint, vector<Point2f>& result)
+bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
