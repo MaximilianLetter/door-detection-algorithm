@@ -28,7 +28,7 @@ const double CANNY_UPPER = 1.33;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
-const int CORNERS_MAX = 100;
+const int CORNERS_MAX = 150;
 const float CORNERS_BOT_QUALITY = 0.01;
 const float CORNERS_TOP_QUALITY = 0.01;
 const float CORNERS_MIN_DIST = 12.0;
