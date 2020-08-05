@@ -13,7 +13,7 @@ using namespace std;
 Mat globalImg;
 
 // Declare all used constants
-const int RES = 240;
+const int RES = 120;
 
 const float ROI_WIDTH = 0.8;
 const float ROI_HEIGHT = 0.125;
@@ -28,16 +28,16 @@ const double CANNY_UPPER = 1.33;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
-const int CORNERS_MAX = 150;
+const int CORNERS_MAX = 100;
 const float CORNERS_BOT_QUALITY = 0.01;
 const float CORNERS_TOP_QUALITY = 0.01;
-const float CORNERS_MIN_DIST = 12.0;
+const float CORNERS_MIN_DIST = 8.0;
 
 // Hough line constants
-const int HOUGH_LINE_WIDTH = 5;
+const int HOUGH_LINE_WIDTH = 4;
 const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
-const int HOUGH_LINE_WIDTH_MAX = 20;
-const float HOUGH_LINE_DIFF_THRESH_PIXEL = 15;
+const int HOUGH_LINE_WIDTH_MAX = 14;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 10;
 const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
 const int HOUGH_COUNT_LIMIT = 20;
 
@@ -57,7 +57,7 @@ const float RECTANGLE_OPPOSITE_THRESH = 10.0;
 // Comparison of rectangles to edges constants
 const float RECT_THRESH = 0.8;
 const float LINE_THRESH = 0.5;
-const int LINE_WIDTH = 8;
+const int LINE_WIDTH = 6;
 
 // Selection of best candidate constants
 const float GOAL_INPUT_RANGE = 0.5;
@@ -173,7 +173,7 @@ int main(int argc, char** argv)
 
 			if (frame.empty()) break;
 
-			resize(frame, frame, Size(427, 240));
+			resize(frame, frame, Size(213, 120));
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
 
 			frame.copyTo(globalImg);
@@ -682,7 +682,7 @@ void clickCallBack(int event, int x, int y, int flags, void* userdata)
 
 void evaluateNextCorner(int event, int x, int y, int flags, void* userdata)
 {
-	float diagonal = 227;
+	float diagonal = 115;
 
 	float bestPointThresh = diagonal * 0.035;
 	float okayPointThresh = diagonal * 0.05;
