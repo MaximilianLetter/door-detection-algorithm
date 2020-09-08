@@ -170,7 +170,7 @@ int main(int argc, char** argv)
 			frame.copyTo(globalImg);
 
 			imshow("Display window", frame);
-			video.write(frame);
+			//video.write(frame);
 
 			char c = (char)waitKey(25);
 			if (c == 27) break;
@@ -204,6 +204,10 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	Mat blurred;
 	GaussianBlur(imgGray, blurred, BLUR_KERNEL, BLUR_SIGMA);
 
+	auto tPRE = chrono::steady_clock::now();
+	auto duration = chrono::duration_cast<chrono::microseconds>(tPRE - t1).count();
+	cout << "PRE : " << duration << endl;
+
 	// Generate edges
 	Mat edges;
 	double median = getMedian(blurred);
@@ -215,8 +219,11 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	double higherThresh = min((double)255, (CANNY_UPPER * median));
 
 	Canny(blurred, edges, lowerThresh, higherThresh);
-	imshow("Edges window", edges);
+	//imshow("Edges window", edges);
 
+	auto tEDGES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tEDGES - tPRE).count();
+	cout << "EDGES : " << duration << endl;
 
 	// Generate hough lines
 	vector<Vec2f> houghLines;
@@ -249,7 +256,9 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
 
-
+	auto tHOUGH = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tHOUGH - tPRE).count();
+	cout << "HOUGH : " << duration << endl;
 
 
 	// Find ROI's based on user input
@@ -290,6 +299,10 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_BOT_QUALITY, CORNERS_MIN_DIST, maskBot, 3);
 	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, maskTop, 3);
 
+	auto tCORNERS = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tCORNERS - tHOUGH).count();
+	cout << "CORNERS : " << duration << endl;
+
 
 	/*for (int i = 0; i < cornersBot.size(); i++)
 	{
@@ -304,10 +317,18 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	// Connect corners to vertical lines
 	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop, filteredHoughLines, filteredHoughLinesWidth, imgGray.size());
 
+	auto tVERTLINES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tVERTLINES - tCORNERS).count();
+	cout << "VERTLINES : " << duration << endl;
+
 	// Group corners based on found lines to rectangles
 
 	vector<vector<float>> rectInnerAngles;
 	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectInnerAngles, lines);
+
+	auto tQUADRANGLES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tQUADRANGLES - tVERTLINES).count();
+	cout << "QUADRANGLES : " << duration << endl;
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
@@ -327,6 +348,11 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	}
 	rectInnerAngles = updInnerAngles;
 
+
+	auto tCANDIDATES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tCANDIDATES - tQUADRANGLES).count();
+	cout << "CANDIDATES : " << duration << endl;
+
 	//for (int i = 0; i < candidates.size(); i++)
 	//{
 	//	/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
@@ -345,9 +371,16 @@ bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
+	
+
+
 	auto t2 = chrono::steady_clock::now();
-	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << duration << endl;
+
+	duration = chrono::duration_cast<chrono::microseconds>(t2 - tCANDIDATES).count();
+	cout << "SELECTION : " << duration << endl;
+
+	duration = chrono::duration_cast<chrono::microseconds>(t2 - t1).count();
+	cout << "_____ overall: " << duration << endl;
 
 	return false;
 }
@@ -545,7 +578,7 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 // Select the candidate by comparing their scores, score boni if special requirements are met
 vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point2f inputPoint, vector<vector<float>> rectInnerAngles, Size size)
 {
-	cout << candidates.size() << "size" << endl;
+	//cout << candidates.size() << "size" << endl;
 	float goalInputRange = size.width * GOAL_INPUT_RANGE;
 
 	for (int i = 0; i < candidates.size(); i++)
