@@ -10,65 +10,75 @@
 using namespace cv;
 using namespace std;
 
-// Declare all used constants
-const int RES = 180;
+Mat globalImg;
 
-const float CONTRAST = 1.2;
+// Declare all used constants
+const int RES = 240;
+
+const float ROI_WIDTH = 0.8;
+const float ROI_HEIGHT = 0.125;
 
 // Blur constants
 const Size BLUR_KERNEL = Size(3, 3);
 const float BLUR_SIGMA = 2.5;
 
 // Canny constants
-const int CANNY_LOWER = 50;
-const int CANNY_UPPER = 200;
+const double CANNY_LOWER = 0.33; // NOTE: The lower threshold is lower than most canny auto thresholds, but necessary to catch some door edges
+const double CANNY_UPPER = 1.33;
 
 // NOTE: these values need to be improved to ensure to always find the corners of a door
 // Corner detection constants
-const int CORNERS_MAX = 50;
-//const float CORNERS_QUALITY = 0.01;
-const float CORNERS_QUALITY = 0.05;
-const float CORNERS_MIN_DIST = 15.0;
-const int CORNERS_MASK_OFFSET = 10;
-const bool CORNERS_HARRIS = false;
+const int CORNERS_MAX = 150;
+const float CORNERS_BOT_QUALITY = 0.01;
+const float CORNERS_TOP_QUALITY = 0.01;
+const float CORNERS_MIN_DIST = 12.0;
+
+// Hough line constants
+const int HOUGH_LINE_WIDTH = 5;
+const int HOUGH_LINE_ADDITIONAL_WIDTH = 2;
+const int HOUGH_LINE_WIDTH_MAX = 20;
+const float HOUGH_LINE_DIFF_THRESH_PIXEL = 15;
+const float HOUGH_LINE_DIFF_THRESH_ANGLE = 0.25;
+const int HOUGH_COUNT_LIMIT = 20;
 
 // Vertical lines constants
-const float LINE_MAX = 0.9;
-const float LINE_MIN = 0.3;
-const float LINE_ANGLE_MIN = 0.875; // RAD
+const float LINE_MIN = 0.4;
 
 // Rectangles constants
 const float ANGLE_MAX = 0.175; // RAD
 const float LENGTH_DIFF_MAX = 0.12;
 const float ASPECT_RATIO_MIN = 0.3;
-const float ASPECT_RATIO_MAX = 0.8;
+const float ASPECT_RATIO_MAX = 0.6; // from 0.6
 const float LENGTH_HOR_DIFF_MAX = 1.2;
 const float LENGTH_HOR_DIFF_MIN = 0.7;
 const float RECTANGLE_THRESH = 10.0;
 const float RECTANGLE_OPPOSITE_THRESH = 10.0;
 
 // Comparison of rectangles to edges constants
-const float RECT_THRESH = 0.85;
+const float RECT_THRESH = 0.8;
 const float LINE_THRESH = 0.5;
-const int LINE_WIDTH = 2;
-const float BOT_LINE_BONUS = 0.25;
+const int LINE_WIDTH = 8;
 
 // Selection of best candidate constants
-const float UPVOTE_FACTOR = 1.2;
-const float DOOR_IN_DOOR_DIFF_THRESH = 18.0; // Divider of image height
-const float COLOR_DIFF_THRESH = 50.0;
-const float ANGLE_DEVIATION_THRESH = 10.0;
+const float GOAL_INPUT_RANGE = 0.5;
+const float GOAL_RATIO = 0.45;
+const float GOAL_RATIO_RANGE = 0.15;
+const float GOAL_ANGLES = 90;
+const float GOAL_ANGLES_DIFF_RANGE = 20;
 
 // Declare all used functions
-bool detect(Mat& image, vector<Point2f>& result);
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height);
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines);
+bool detect(Mat image, Point2f point, vector<Point2f>& result);
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, vector<Vec2f> houghLines, vector<int> houghLinesWidth, Size size);
+vector<vector<Point2f>> vertLinesToRectangles(vector<vector<float>>& rectInnerAngles, vector<vector<Point2f>> lines);
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges);
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray);
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point2f inputPoint, vector<vector<float>> rectInnerAngles, Size size);
 
 float getDistance(Point2f p1, Point2f p2);
 float getOrientation(Point2f p1, Point2f p2);
 float getCornerAngle(Point2f p1, Point2f p2, Point2f p3);
+double getMedian(Mat channel);
+
+void clickCallBack(int event, int x, int y, int flags, void* userdata);
 
 int main(int argc, char** argv)
 {
@@ -88,6 +98,8 @@ int main(int argc, char** argv)
 	namedWindow("Edges window", WINDOW_AUTOSIZE);
 	namedWindow("Dev window", WINDOW_AUTOSIZE);
 
+	setMouseCallback("Display window", clickCallBack, NULL);
+
 	if (!video)
 	{
 		Mat image;
@@ -100,7 +112,7 @@ int main(int argc, char** argv)
 		}
 
 		vector<Point2f> result = {};
-		bool success = detect(image, result);
+		bool success = detect(image, Point2f(), result);
 
 		if (result.size() > 0)
 		{
@@ -140,42 +152,25 @@ int main(int argc, char** argv)
 		// frames get loaded rotated -> flip width and height
 		int frameWidth = cap.get(CAP_PROP_FRAME_HEIGHT);
 		int frameHeight = cap.get(CAP_PROP_FRAME_WIDTH);
-		cout << frameWidth;
+		cout << frameWidth << " " << frameHeight;
 		int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
 		VideoWriter video("./results/output.avi", codec, 25.0, Size(frameWidth, frameHeight));
 
+		Mat frame;
+
 		while (1)
 		{
-			Mat frame;
 			cap >> frame;
 
 			if (frame.empty()) break;
 
+			resize(frame, frame, Size(427, 240));
 			rotate(frame, frame,  ROTATE_90_CLOCKWISE);
-			//auto size = frame.size();
-			vector<Point2f> result = {};
 
-			bool success = detect(frame, result);
+			frame.copyTo(globalImg);
 
-			//resize(frame, frame, size);
-
-			if (result.size() > 0)
-			{
-				// Scale up to match input size (6x for FHD, 4x for HD)
-				for (int i = 0; i < result.size(); i++)
-				{
-					result[i] = result[i] * 6;
-				}
-
-				line(frame, result[0], result[1], Scalar(255, 255, 0), 2);
-				line(frame, result[1], result[2], Scalar(255, 255, 0), 2);
-				line(frame, result[2], result[3], Scalar(255, 255, 0), 2);
-				line(frame, result[3], result[0], Scalar(255, 255, 0), 2);
-			}
-
-			resize(frame, frame, frame.size() / 2);
 			imshow("Display window", frame);
-			video.write(frame);
+			//video.write(frame);
 
 			char c = (char)waitKey(25);
 			if (c == 27) break;
@@ -190,7 +185,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-bool detect(Mat& input, vector<Point2f>& result)
+bool detect(Mat input, Point2f inputPoint, vector<Point2f>& result)
 {
 	auto t1 = chrono::steady_clock::now();
 
@@ -200,50 +195,145 @@ bool detect(Mat& input, vector<Point2f>& result)
 	// Scale image down
 	int width = image.size().width;
 	int height = image.size().height;
-	float ratio = float(height) / float(width);
-	resize(image, image, Size(RES, int(RES * ratio)), 0.0, 0.0, INTER_AREA);
-	// NOTE: different interpolation methods can be used
 
 	// Convert to grayscale
-	Mat gray;
-	cvtColor(image, gray, COLOR_BGR2GRAY);
-
-	// Increase contrast
-	gray.convertTo(gray, -1, CONTRAST, 0);
+	Mat imgGray;
+	cvtColor(image, imgGray, COLOR_BGR2GRAY);
 
 	// Blur the image
 	Mat blurred;
-	GaussianBlur(gray, blurred, BLUR_KERNEL, BLUR_SIGMA);
+	GaussianBlur(imgGray, blurred, BLUR_KERNEL, BLUR_SIGMA);
+
+	auto tPRE = chrono::steady_clock::now();
+	auto duration = chrono::duration_cast<chrono::microseconds>(tPRE - t1).count();
+	cout << "PRE : " << duration << endl;
 
 	// Generate edges
 	Mat edges;
-	Canny(blurred, edges, CANNY_LOWER, CANNY_UPPER);
-	imshow("Edges window", edges);
+	double median = getMedian(blurred);
+	
+	// Very dark images can go to values like 9, resulting in extremely noisy images
+	median = max((double)30, median);
 
-	// Generate mask and find corners
-	vector<Point2f> corners;
-	Mat mask;
+	double lowerThresh = max((double)0, (CANNY_LOWER * median));
+	double higherThresh = min((double)255, (CANNY_UPPER * median));
 
-	mask = Mat::zeros(image.size(), CV_8U);
-	Rect rect = Rect(CORNERS_MASK_OFFSET, CORNERS_MASK_OFFSET, image.size().width - CORNERS_MASK_OFFSET, image.size().height - CORNERS_MASK_OFFSET);
-	mask(rect) = 1;
+	Canny(blurred, edges, lowerThresh, higherThresh);
+	//imshow("Edges window", edges);
 
-	goodFeaturesToTrack(blurred, corners, CORNERS_MAX, CORNERS_QUALITY, CORNERS_MIN_DIST, mask, 3, CORNERS_HARRIS);
+	auto tEDGES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tEDGES - tPRE).count();
+	cout << "EDGES : " << duration << endl;
 
-	for (int i = 0; i < corners.size(); i++)
+	// Generate hough lines
+	vector<Vec2f> houghLines;
+	int thresh = (int)(imgGray.size().height * 0.25);
+	HoughLines(edges, houghLines, 1, CV_PI / 180, thresh, 0, 0);
+	vector<Vec2f> filteredHoughLines;
+	vector<int> filteredHoughLinesWidth;
+
+	// Go through lines and merge them into bigger lines
+	for (size_t h = 0; h < houghLines.size(); h++)
 	{
-		circle(blurred, corners[i], 3, Scalar(0, 0, 255), -1);
+		bool lineDone = false;
+
+		for (int f = 0; f < filteredHoughLines.size(); f++)
+		{
+			Vec2f diff = houghLines[h] - filteredHoughLines[f];
+			if (abs(diff[0]) < HOUGH_LINE_DIFF_THRESH_PIXEL && abs(diff[1]) < HOUGH_LINE_DIFF_THRESH_ANGLE)
+			{
+				filteredHoughLines[f] = (filteredHoughLines[f] + houghLines[h]) / 2;
+				int width = filteredHoughLinesWidth[f] + HOUGH_LINE_ADDITIONAL_WIDTH;
+				filteredHoughLinesWidth[f] = min(width, HOUGH_LINE_WIDTH_MAX);
+				lineDone = true;
+				break;
+			}
+		}
+
+		if (lineDone) continue;
+
+		filteredHoughLines.push_back(houghLines[h]);
+		filteredHoughLinesWidth.push_back(HOUGH_LINE_WIDTH);
 	}
 
+	auto tHOUGH = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tHOUGH - tPRE).count();
+	cout << "HOUGH : " << duration << endl;
+
+
+	// Find ROI's based on user input
+	Mat maskBot, maskTop;
+	vector<Point2f> cornersBot, cornersTop;
+
+
+	// Find ROI based on inputPoint
+	int roiBotWidth = width * ROI_WIDTH;
+	int roiBotHeight = height * ROI_HEIGHT;
+	Point2f roiPoint = Point2f(inputPoint.x - roiBotWidth / 2, inputPoint.y - roiBotHeight / 2);
+	Rect roiBot = Rect(roiPoint.x, roiPoint.y, roiBotWidth, roiBotHeight);
+
+	// Cut overlapping parts off
+	roiBot = roiBot & Rect(0, 0, width, height);
+
+	maskBot = Mat::zeros(image.size(), CV_8U);
+	maskBot(roiBot) = 1;
+
+	
+	// Extract top corners to join
+	int lowLineBot = roiBot.y + roiBot.height;
+	int roiTopHeight = lowLineBot - (LINE_MIN * height);
+	//line(blurred, Point2f(5, roiTopHeight), Point2f(width-5, roiTopHeight), 255, 3);
+
+	// NOTE: order matters
+	Point polygonPoints[4] = {
+		Point(0, 0),
+		Point(width, 0),
+		Point(roiBot.x + roiBot.width, roiTopHeight),
+		Point(roiBot.x, roiTopHeight)
+	};
+
+	maskTop = Mat::zeros(image.size(), CV_8U);
+    fillConvexPoly(maskTop, polygonPoints, 4, cv::Scalar(255));
+
+	
+	goodFeaturesToTrack(blurred, cornersBot, CORNERS_MAX, CORNERS_BOT_QUALITY, CORNERS_MIN_DIST, maskBot, 3);
+	goodFeaturesToTrack(blurred, cornersTop, CORNERS_MAX, CORNERS_TOP_QUALITY, CORNERS_MIN_DIST, maskTop, 3);
+
+	auto tCORNERS = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tCORNERS - tHOUGH).count();
+	cout << "CORNERS : " << duration << endl;
+
+
+	/*for (int i = 0; i < cornersBot.size(); i++)
+	{
+		circle(blurred, cornersBot[i], 3, 255, -1);
+	}
+
+	for (int i = 0; i < cornersTop.size(); i++)
+	{
+		circle(blurred, cornersTop[i], 3, 255, -1);
+	}*/
+
 	// Connect corners to vertical lines
-	vector<vector<Point2f>> lines = cornersToVertLines(corners, int(RES * ratio));
+	vector<vector<Point2f>> lines = cornersToVertLines(cornersBot, cornersTop, filteredHoughLines, filteredHoughLinesWidth, imgGray.size());
+
+	auto tVERTLINES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tVERTLINES - tCORNERS).count();
+	cout << "VERTLINES : " << duration << endl;
 
 	// Group corners based on found lines to rectangles
-	vector<vector<Point2f>> rectangles = vertLinesToRectangles(lines);
+
+	vector<vector<float>> rectInnerAngles;
+	vector<vector<Point2f>> rectangles = vertLinesToRectangles(rectInnerAngles, lines);
+
+	auto tQUADRANGLES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tQUADRANGLES - tVERTLINES).count();
+	cout << "QUADRANGLES : " << duration << endl;
 
 	// NOTE: this could be done in vertLinesToRectangles aswell
 	// Compare the found rectangles to the edge image
 	vector<vector<Point2f>> candidates;
+	vector<vector<float>> updInnerAngles;
 	vector<float> scores;
 	for (int i = 0; i < rectangles.size(); i++)
 	{
@@ -252,70 +342,101 @@ bool detect(Mat& input, vector<Point2f>& result)
 		if (result > RECT_THRESH)
 		{
 			candidates.push_back(rectangles[i]);
+			updInnerAngles.push_back(rectInnerAngles[i]);
 			scores.push_back(result);
 		}
 	}
-	for (int i = 0; i < candidates.size(); i++)
-	{
-		/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
-		line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
-		line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
-	}
-	imshow("Dev window", blurred);
+	rectInnerAngles = updInnerAngles;
+
+
+	auto tCANDIDATES = chrono::steady_clock::now();
+	duration = chrono::duration_cast<chrono::microseconds>(tCANDIDATES - tQUADRANGLES).count();
+	cout << "CANDIDATES : " << duration << endl;
+
+	//for (int i = 0; i < candidates.size(); i++)
+	//{
+	//	/*polylines(image, rectangles[i], true, Scalar(255, 255, 0), 1);*/
+	//	line(blurred, candidates[i][0], candidates[i][1], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][1], candidates[i][2], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][2], candidates[i][3], Scalar(255, 255, 0), 2);
+	//	line(blurred, candidates[i][3], candidates[i][0], Scalar(255, 255, 0), 2);
+	//}
+	//imshow("Dev window", blurred);
 
 	// Select the best candidate out of the given rectangles
 	if (candidates.size())
 	{
-		vector<Point2f> door = selectBestCandidate(candidates, scores, gray);
+		vector<Point2f> door = selectBestCandidate(candidates, scores, inputPoint, rectInnerAngles, imgGray.size());
 		result = door;
 	}
 	//cout << rectangles.size() << "; " << candidates.size() << endl;
 
+	
+
+
 	auto t2 = chrono::steady_clock::now();
-	auto duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-	cout << duration << endl;
+
+	duration = chrono::duration_cast<chrono::microseconds>(t2 - tCANDIDATES).count();
+	cout << "SELECTION : " << duration << endl;
+
+	duration = chrono::duration_cast<chrono::microseconds>(t2 - t1).count();
+	cout << "_____ overall: " << duration << endl;
 
 	return false;
 }
 
 // Group corners to vertical lines that represent the door posts
-vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
+vector<vector<Point2f>> cornersToVertLines(vector<Point2f> cornersBot, vector<Point2f> cornersTop, vector<Vec2f> houghLines, vector<int> houghLinesWidth, Size size)
 {
-	float lengthMax = LINE_MAX * height;
-	float lengthMin = LINE_MIN * height;
-
 	vector<vector<Point2f>> lines;
 
-	for (int i = 0; i < corners.size(); i++)
+	Mat houghMat;
+	Rect fullRect = Rect(cv::Point(), size);
+	/*int linesComputed = 0;*/
+
+	for (size_t h = 0; h < houghLines.size(); h++)
 	{
-		for (int j = 0; j < corners.size(); j++)
+		houghMat = Mat::zeros(size, CV_8U);
+
+		float rho = houghLines[h][0], theta = houghLines[h][1];
+
+		Point pt1, pt2;
+		double a = cos(theta), b = sin(theta);
+		double x0 = a * rho, y0 = b * rho;
+		pt1.x = cvRound(x0 + 1000 * (-b));
+		pt1.y = cvRound(y0 + 1000 * (a));
+		pt2.x = cvRound(x0 - 1000 * (-b));
+		pt2.y = cvRound(y0 - 1000 * (a));
+
+		float angle = abs(atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180.0 / CV_PI);
+		if (angle < 80 || angle > 100)
 		{
-			if (j <= i) continue;
+			continue;
+		}
+		//linesComputed++;
 
-			float distance = getDistance(corners[i], corners[j]);
-			if (distance < lengthMin || distance > lengthMax)
-			{
-				continue;
-			}
+		//// houghLines are ordered by votes, therefor weaker lines can be omitted
+		//if (linesComputed > HOUGH_COUNT_LIMIT)
+		//{
+		//	continue;
+		//}
 
-			float orientation = getOrientation(corners[i], corners[j]);
-			if (orientation < LINE_ANGLE_MIN)
-			{
-				continue;
-			}
+		line(houghMat, pt1, pt2, 1, houghLinesWidth[h], LINE_AA);
 
-			// Sort by y-value, so that the high points are first
-			vector<Point2f> line;
-			if (corners[i].y < corners[j].y)
+		vector<Point2f> houghPoints = {};
+		for (int i = 0; i < cornersTop.size(); i++)
+		{
+			if (fullRect.contains(cornersTop[i]) && houghMat.at<uchar>(cornersTop[i]))
 			{
-				line = { corners[i], corners[j] };
+				for (int j = 0; j < cornersBot.size(); j++)
+				{
+					if (fullRect.contains(cornersBot[j]) && houghMat.at<uchar>(cornersBot[j]))
+					{
+						vector<Point2f> line = { cornersTop[i], cornersBot[j] };
+						lines.push_back(line);
+					}
+				}
 			}
-			else {
-				line = { corners[j], corners[i] };
-			}
-			lines.push_back(line);
 		}
 	}
 
@@ -323,12 +444,14 @@ vector<vector<Point2f>> cornersToVertLines(vector<Point2f> corners, int height)
 }
 
 // Group rectangles that represent door candidates out of vertical lines
-vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
+vector<vector<Point2f>> vertLinesToRectangles(vector<vector<float>>& rectInnerAngles, vector<vector<Point2f>> lines)
 {
 	vector<vector<Point2f>> rects;
 
 	for (int i = 0; i < lines.size(); i++)
 	{
+		float length1 = getDistance(lines[i][0], lines[i][1]);
+
 		for (int j = 0; j < lines.size(); j++)
 		{
 			if (j <= i) continue;
@@ -339,10 +462,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 				continue;
 			}
 
-			// NOTE: both of these values were calculated before,
-			// maybe store them for reusage
 			// Check if length difference of lines is close
-			float length1 = getDistance(lines[i][0], lines[i][1]);
 			float length2 = getDistance(lines[j][0], lines[j][1]);
 			float lengthDiff = abs(length1 - length2);
 			float lengthAvg = (length1 + length2) / 2;
@@ -351,7 +471,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			{
 				continue;
 			}
-
+			
 			// Check if top distance is in range of the given aspect ratio
 			float lengthMin = lengthAvg * ASPECT_RATIO_MIN;
 			float lengthMax = lengthAvg * ASPECT_RATIO_MAX;
@@ -385,11 +505,13 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 				continue;
 			}
 
-			float angles[4];
-			angles[0] = getCornerAngle(lines[i][1], lines[i][0], lines[j][0]);
-			angles[1] = getCornerAngle(lines[i][0], lines[j][0], lines[j][1]);
-			angles[2] = getCornerAngle(lines[j][0], lines[j][1], lines[i][1]);
-			angles[3] = getCornerAngle(lines[j][1], lines[i][1], lines[i][0]);
+
+			// These angles could be reused for voting and should be saved
+			vector<float> angles;
+			angles.push_back(getCornerAngle(lines[i][1], lines[i][0], lines[j][0]));
+			angles.push_back(getCornerAngle(lines[i][0], lines[j][0], lines[j][1]));
+			angles.push_back(getCornerAngle(lines[j][0], lines[j][1], lines[i][1]));
+			angles.push_back(getCornerAngle(lines[j][1], lines[i][1], lines[i][0]));
 
 			bool rectangular = true;
 
@@ -412,6 +534,7 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 			// Sort in order: leftBot > leftTop > rightTop > rightBot
 			vector<Point2f> group = { lines[i][1], lines[i][0], lines[j][0], lines[j][1] };
 			rects.push_back(group);
+			rectInnerAngles.push_back(angles);
 		}
 	}
 
@@ -422,9 +545,8 @@ vector<vector<Point2f>> vertLinesToRectangles(vector<vector<Point2f>> lines)
 float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 {
 	float result = 0.0;
-	float bottomBonus = 0.0;
 
-	for (int i = 0; i < rect.size(); i++)
+	for (int i = 0; i < rect.size() - 1; i++)
 	{
 		// Next point to connect
 		int j = (i + 1) % 4;
@@ -439,82 +561,57 @@ float compareRectangleToEdges(vector<Point2f> rect, Mat edges)
 		float lineLength = getDistance(rect[i], rect[j]);
 		float fillRatio = min(float(1.0), countNonZero(roi) / lineLength);
 
-		if (i < 3)
+		if (fillRatio < LINE_THRESH)
 		{
-			if (fillRatio < LINE_THRESH)
-			{
-				return 0.0;
-			}
+			return 0.0;
+		}
 
-			result += fillRatio;
-		}
-		else
-		{
-			// Bottom line
-			bottomBonus = fillRatio * BOT_LINE_BONUS;
-		}
+		result += fillRatio;
 	}
 
 	// Get average fillRatio for all lines but bottom line
-	result = (result / 3) + bottomBonus;
+	result = result / 3;
 
 	return result;
 }
 
 // Select the candidate by comparing their scores, score boni if special requirements are met
-vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Mat gray)
+vector<Point2f> selectBestCandidate(vector<vector<Point2f>> candidates, vector<float> scores, Point2f inputPoint, vector<vector<float>> rectInnerAngles, Size size)
 {
-	cout << candidates.size() << "size" << endl;
+	//cout << candidates.size() << "size" << endl;
+	float goalInputRange = size.width * GOAL_INPUT_RANGE;
+
 	for (int i = 0; i < candidates.size(); i++)
 	{
-		// NOTE: this can be a trap and should be somewhat dynamic
-		// Test if inner content has a different color average
-		int left = (candidates[i][0].x + candidates[i][1].x) / 2;
-		int top = (candidates[i][1].y + candidates[i][2].y) / 2;
-		int right = (candidates[i][2].x + candidates[i][3].x) / 2;
-		int bottom = (candidates[i][3].y + candidates[i][0].y) / 2;
+		// INPUT SCORE
+		Point2f bottomCenter = (candidates[i][3] + candidates[i][0]) * 0.5;
+		float inputDistance = getDistance(bottomCenter, inputPoint);
+		float inputScore = (goalInputRange - inputDistance) / goalInputRange;
 
-		// This whole process of masking the image seems like a workaround
-		Rect rect = Rect(Point2i(left, bottom), Point2i(right, top));
-		Mat mask = Mat::zeros(gray.size(), CV_8U);
-		rectangle(mask, rect, 1);
+		// ASPECT SCORE
+		float lineLeft = getDistance(candidates[i][0], candidates[i][1]);
+		float lineTop = getDistance(candidates[i][1], candidates[i][2]);
+		float lineRight = getDistance(candidates[i][2], candidates[i][3]);
+		float lineBot = getDistance(candidates[i][3], candidates[i][0]);
 
-		double inner = mean(gray, mask)[0];
-		mask = 1 - mask;
-		double outer = mean(gray, mask)[0];
+		float aspectRatio = ((lineTop + lineBot) * 0.5) / ((lineLeft + lineRight) * 0.5);
 
-		if (abs(inner - outer) > COLOR_DIFF_THRESH)
-		{
-			scores[i] *= UPVOTE_FACTOR;
-		}
+		float aspectScore = (GOAL_RATIO_RANGE - abs(GOAL_RATIO - aspectRatio)) / GOAL_RATIO_RANGE;
 
-		// Test for corner angles
-		/*float angle0 = getCornerAngle(candidates[i][3], candidates[i][0], candidates[i][1]);
-		float angle1 = getCornerAngle(candidates[i][0], candidates[i][1], candidates[i][2]);
-		float angle2 = getCornerAngle(candidates[i][1], candidates[i][2], candidates[i][3]);
-		float angle3 = getCornerAngle(candidates[i][2], candidates[i][3], candidates[i][0]);
+		// ANGLE SCORE
+		// NOTE: maybe punish single angle breakouts more
+		float angle0 = rectInnerAngles[i][0];
+		float angle1 = rectInnerAngles[i][1];
+		float angle2 = rectInnerAngles[i][2];
+		float angle3 = rectInnerAngles[i][3];
 
-		float botAngleDiff = abs(angle0 - angle3);
-		float topAngleDiff = abs(angle1 - angle2);
+		float angleDiff = abs(GOAL_ANGLES - angle0) + abs(GOAL_ANGLES - angle1) + abs(GOAL_ANGLES - angle2) + abs(GOAL_ANGLES - angle3);
+		float angleScore = (GOAL_ANGLES_DIFF_RANGE - angleDiff) / GOAL_ANGLES_DIFF_RANGE;
 
-		if (botAngleDiff < ANGLE_DEVIATION_THRESH && topAngleDiff < ANGLE_DEVIATION_THRESH)
-		{
-			scores[i] *= UPVOTE_FACTOR;
-		}*/
 
-		// Check if there is a door with the same top corners
-		for (int j = 0; j < candidates.size(); j++)
-		{
-			if (j == i) continue;
-			// Gets upvoted x times for x doors with same topPoints -> defeating all other candidates that do not have multiple doors on it
-
-			if (candidates[i][1] == candidates[j][1] && candidates[i][2] == candidates[j][2])
-			{
-				scores[i] = scores[i] * UPVOTE_FACTOR;
-			}
-		}
-
-		//cout << scores[i];
+		scores[i] *= (1 + ((inputScore * 0.45 + aspectScore * 0.35 + angleScore * 0.2) * 0.5));
+		/*cout << "ENDSCORE: " << scores[i] << endl;
+		cout << "______________________" << endl;*/
 	}
 
 	int index = max_element(scores.begin(), scores.end()) - scores.begin();
@@ -553,4 +650,53 @@ float getCornerAngle(Point2f p1, Point2f p2, Point2f p3)
 	angle = abs(acos(angle) * 180/M_PI);
 
 	return angle;
+}
+
+// Calculates the median value of a single channel
+// based on https://github.com/arnaudgelas/OpenCVExamples/blob/master/cvMat/Statistics/Median/Median.cpp
+double getMedian(cv::Mat channel)
+{
+	double m = (channel.rows * channel.cols) / 2;
+	int bin = 0;
+	double med = -1.0;
+
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+	bool uniform = true;
+	bool accumulate = false;
+	cv::Mat hist;
+	cv::calcHist(&channel, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange, uniform, accumulate);
+
+	for (int i = 0; i < histSize && med < 0.0; ++i)
+	{
+		bin += cvRound(hist.at< float >(i));
+		if (bin > m && med < 0.0)
+			med = i;
+	}
+
+	return med;
+}
+
+void clickCallBack(int event, int x, int y, int flags, void* userdata)
+{
+	if (event == EVENT_LBUTTONDOWN)
+	{
+		cout << "Position (" << x << ", " << y << ")" << endl;
+		Point2f point = Point2f(x, y);
+
+		vector<Point2f> result = {};
+		bool success = detect(globalImg, point, result);
+
+		if (result.size() > 0)
+		{
+			line(globalImg, result[0], result[1], Scalar(255, 255, 0), 2);
+			line(globalImg, result[1], result[2], Scalar(255, 255, 0), 2);
+			line(globalImg, result[2], result[3], Scalar(255, 255, 0), 2);
+			line(globalImg, result[3], result[0], Scalar(255, 255, 0), 2);
+		}
+
+		imshow("result", globalImg);
+		waitKey(0);
+	}
 }
